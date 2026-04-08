@@ -1,8 +1,13 @@
+use std::time::{Duration, Instant};
+
 #[derive(Debug, Clone)]
 pub struct ActiveWindowState {
     pub title: String,
     pub process_id: u32,
     pub process_name: String,
+
+    pub first_seen_at: Instant,
+    pub last_seen_at: Instant,
 }
 
 #[derive(Debug)]

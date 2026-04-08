@@ -42,30 +42,60 @@ fn process_events(event_bus: &mut EventBus, state: &mut AppState, config: &AppCo
                 process_id,
                 process_name,
             } => {
-                let has_changed = state
-                    .active_window
-                    .as_ref()
-                    .map(|current| {
-                        current.title != title
-                            || current.process_id != process_id
-                            || current.process_name != process_name
-                    })
-                    .unwrap_or(true);
+                let now = std::time::Instant::now();
 
-                state.active_window = Some(ActiveWindowState {
-                    title: title.clone(),
-                    process_id,
-                    process_name: process_name.clone(),
-                });
+                match &mut state.active_window {
+                    Some(current) => {
+                        let is_same =
+                            current.title == title &&
+                            current.process_id == process_id &&
+                            current.process_name == process_name;
 
-                if has_changed {
-                    info!(
-                        tick = state.tick_count,
-                        process_id = process_id,
-                        process_name = %process_name,
-                        title = %title,
-                        "active window changed"
-                    );
+                        if is_same {
+                            current.last_seen_at = now;
+
+                            let duration = now.duration_since(current.first_seen_at);
+
+                            info!(
+                                tick = state.tick_count,
+                                process_name = %process_name,
+                                title = %title,
+                                stable_for_ms = duration.as_millis(),
+                                "window still active"
+                            );
+                        } else {
+                            state.active_window = Some(ActiveWindowState {
+                                title: title.clone(),
+                                process_id,
+                                process_name: process_name.clone(),
+                                first_seen_at: now,
+                                last_seen_at: now,
+                            });
+
+                            info!(
+                                tick = state.tick_count,
+                                process_name = %process_name,
+                                title = %title,
+                                "active window changed"
+                            );
+                        }
+                    }
+                    None => {
+                        state.active_window = Some(ActiveWindowState {
+                            title: title.clone(),
+                            process_id,
+                            process_name: process_name.clone(),
+                            first_seen_at: now,
+                            last_seen_at: now,
+                        });
+
+                        info!(
+                            tick = state.tick_count,
+                            process_name = %process_name,
+                            title = %title,
+                            "initial active window detected"
+                        );
+                    }
                 }
             }
         }

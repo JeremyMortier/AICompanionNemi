@@ -1,13 +1,13 @@
 # Rust
-core-daemon/target
+target/
 **/*.rs.bk
 
 # Cargo
-core-daemon/Cargo.lock
+Cargo.lock
 
 # VS Code
-core-daemon/.vscode/
+.vscode/
 
 # OS
-core-daemon/.DS_Store
-core-daemon/Thumbs.db
+.DS_Store
+Thumbs.db
