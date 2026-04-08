@@ -1,14 +1,21 @@
+#[derive(Debug, Clone)]
+pub struct ActiveWindowState {
+    pub title: String,
+    pub process_id: u32,
+    pub process_name: String,
+}
+
 #[derive(Debug)]
 pub struct AppState {
     pub tick_count: u64,
-    pub last_observation_summary: Option<String>,
+    pub active_window: Option<ActiveWindowState>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
             tick_count: 0,
-            last_observation_summary: None,
+            active_window: None,
         }
     }
 

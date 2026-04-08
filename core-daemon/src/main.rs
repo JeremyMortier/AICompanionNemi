@@ -1,5 +1,7 @@
 mod app;
 mod config;
+mod events;
+mod observation;
 mod state;
 mod tick;
 
