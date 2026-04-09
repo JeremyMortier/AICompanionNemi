@@ -1,5 +1,8 @@
 use std::collections::VecDeque;
 
+use crate::activity::UserActivity;
+use crate::context::ContextInterpretation;
+
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     Tick,
@@ -8,6 +11,13 @@ pub enum AppEvent {
         process_id: u32,
         process_name: String,
     },
+    ContextInterpretationRequested {
+        title: String,
+        process_name: String,
+        heuristic_activity: UserActivity,
+        stable_for_ms: u128,
+    },
+    ContextInterpreted(ContextInterpretation),
 }
 
 #[derive(Debug)]
