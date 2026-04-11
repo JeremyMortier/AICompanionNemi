@@ -7,12 +7,14 @@ use tracing_subscriber::EnvFilter;
 use crate::activity::classify_activity;
 use crate::config::AppConfig;
 use crate::context::ContextInterpretation;
+use crate::decision::{ReactionDecision, decide_reaction};
 use crate::events::{AppEvent, EventBus};
 use crate::llm::LlmClient;
+use crate::reaction::GeneratedReaction;
 use crate::state::{ActiveWindowState, AppState};
 use crate::tick::run_tick;
 
-const INTERPRETATION_THRESHOLD_MS: u128 = 5_000;
+const INTERPRETATION_THRESHOLD_MS: u128 = 2_000;
 
 pub async fn run() -> Result<()> {
     init_tracing();
@@ -150,30 +152,103 @@ async fn process_events(
                     .await
                 {
                     Ok(result) => {
-                        event_bus.push(AppEvent::ContextInterpreted(result));
+                        event_bus.push(AppEvent::ContextInterpreted {
+                            interpretation: result,
+                            stable_for_ms,
+                        });
                     }
                     Err(err) => {
                         error!(error = %err, "failed to interpret context with llm");
                     }
                 }
             }
-            AppEvent::ContextInterpreted(result) => {
-                handle_interpreted_context(state, result);
+            AppEvent::ContextInterpreted {
+                interpretation,
+                stable_for_ms,
+            } => {
+                handle_interpreted_context(state, event_bus, interpretation, stable_for_ms);
+            }
+            AppEvent::ReactionDecisionMade(decision) => {
+                handle_reaction_decision(state, event_bus, decision);
+            }
+            AppEvent::ReactionGenerationRequested {
+                decision,
+                interpretation,
+            } => match llm.generate_reaction(&interpretation, &decision).await {
+                Ok(generated) => {
+                    event_bus.push(AppEvent::ReactionGenerated(generated));
+                }
+                Err(err) => {
+                    error!(error = %err, "failed to generate reaction with llm");
+                }
+            },
+            AppEvent::ReactionGenerated(generated) => {
+                handle_generated_reaction(state, generated);
             }
         }
     }
 }
 
-fn handle_interpreted_context(state: &mut AppState, result: ContextInterpretation) {
+fn handle_interpreted_context(
+    state: &mut AppState,
+    event_bus: &mut EventBus,
+    interpretation: ContextInterpretation,
+    stable_for_ms: u128,
+) {
     info!(
-        activity = ?result.activity,
-        confidence = result.confidence,
-        should_comment = result.should_comment,
-        summary = %result.summary,
+        activity = ?interpretation.activity,
+        confidence = interpretation.confidence,
+        should_comment = interpretation.should_comment,
+        summary = %interpretation.summary,
         "context interpreted"
     );
 
-    state.last_interpretation = Some(result);
+    state.last_interpretation = Some(interpretation.clone());
+
+    let decision = decide_reaction(state, &interpretation, stable_for_ms, Instant::now());
+
+    event_bus.push(AppEvent::ReactionDecisionMade(decision));
+}
+
+fn handle_reaction_decision(
+    state: &mut AppState,
+    event_bus: &mut EventBus,
+    decision: ReactionDecision,
+) {
+    match &decision {
+        ReactionDecision::StaySilent { reason } => {
+            info!(reason = %reason, "reaction decision: stay silent");
+        }
+        ReactionDecision::LightComment { reason } => {
+            info!(reason = %reason, "reaction decision: light comment");
+            state.last_reaction_at = Some(Instant::now());
+
+            if let Some(interpretation) = state.last_interpretation.clone() {
+                event_bus.push(AppEvent::ReactionGenerationRequested {
+                    decision: decision.clone(),
+                    interpretation,
+                });
+            }
+        }
+        ReactionDecision::CuriousComment { reason } => {
+            info!(reason = %reason, "reaction decision: curious comment");
+            state.last_reaction_at = Some(Instant::now());
+
+            if let Some(interpretation) = state.last_interpretation.clone() {
+                event_bus.push(AppEvent::ReactionGenerationRequested {
+                    decision: decision.clone(),
+                    interpretation,
+                });
+            }
+        }
+    }
+
+    state.last_decision = Some(decision);
+}
+
+fn handle_generated_reaction(state: &mut AppState, generated: GeneratedReaction) {
+    info!(reaction = %generated.text, "generated reaction");
+    state.last_generated_reaction = Some(generated);
 }
 
 fn should_request_interpretation(
@@ -189,8 +264,8 @@ fn should_request_interpretation(
         crate::activity::UserActivity::Browsing => true,
         crate::activity::UserActivity::Watching => true,
         crate::activity::UserActivity::Coding => true,
-        crate::activity::UserActivity::Chatting => false,
-        crate::activity::UserActivity::Gaming => false,
+        crate::activity::UserActivity::Chatting => true,
+        crate::activity::UserActivity::Gaming => true,
     }
 }
 

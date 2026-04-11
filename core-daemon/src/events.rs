@@ -2,6 +2,8 @@ use std::collections::VecDeque;
 
 use crate::activity::UserActivity;
 use crate::context::ContextInterpretation;
+use crate::decision::ReactionDecision;
+use crate::reaction::GeneratedReaction;
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -17,7 +19,16 @@ pub enum AppEvent {
         heuristic_activity: UserActivity,
         stable_for_ms: u128,
     },
-    ContextInterpreted(ContextInterpretation),
+    ContextInterpreted {
+        interpretation: ContextInterpretation,
+        stable_for_ms: u128,
+    },
+    ReactionDecisionMade(ReactionDecision),
+    ReactionGenerationRequested {
+        decision: ReactionDecision,
+        interpretation: ContextInterpretation,
+    },
+    ReactionGenerated(GeneratedReaction),
 }
 
 #[derive(Debug)]
