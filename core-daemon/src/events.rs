@@ -27,6 +27,7 @@ pub enum AppEvent {
     ReactionGenerationRequested {
         decision: ReactionDecision,
         interpretation: ContextInterpretation,
+        recent_reactions: Vec<String>,
     },
     ReactionGenerated(GeneratedReaction),
 }

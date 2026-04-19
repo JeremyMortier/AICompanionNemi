@@ -84,8 +84,10 @@ impl LlmClient {
         &self,
         interpretation: &ContextInterpretation,
         decision: &ReactionDecision,
+        recent_reactions: &[String],
+        persona: &crate::persona::PersonaProfile,
     ) -> Result<GeneratedReaction> {
-        let prompt = build_reaction_prompt(interpretation, decision);
+        let prompt = build_reaction_prompt(interpretation, decision, recent_reactions, persona);
 
         let request = OllamaGenerateRequest {
             model: self.model.clone(),
@@ -204,6 +206,8 @@ For should_comment:
 fn build_reaction_prompt(
     interpretation: &ContextInterpretation,
     decision: &ReactionDecision,
+    recent_reactions: &[String],
+    persona: &crate::persona::PersonaProfile,
 ) -> String {
     let decision_label = match decision {
         ReactionDecision::StaySilent { .. } => "StaySilent",
@@ -211,37 +215,77 @@ fn build_reaction_prompt(
         ReactionDecision::CuriousComment { .. } => "CuriousComment",
     };
 
+    let recent_reactions_block = if recent_reactions.is_empty() {
+        "none".to_string()
+    } else {
+        recent_reactions
+            .iter()
+            .enumerate()
+            .map(|(idx, text)| format!("{}. {}", idx + 1, text))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
     format!(
-        r#"You are Nemi, a lively anime-style personal AI companion for a private desktop setup.
+        r#"You are {name}, a lively anime-style personal AI companion for a private desktop setup.
 
-        Style rules:
-        - be short
-        - sound natural and lightly playful
-        - do not be cringe
-        - do not be overly romantic
-        - do not be explicit
-        - do not roleplay actions you cannot actually perform
-        - speak like a present desktop companion noticing what the user is doing
-        - one sentence only
-        - maximum 20 words
-        - no emojis unless they feel very natural and minimal
+Persona:
+- energy: {energy}/100
+- playfulness: {playfulness}/100
+- curiosity: {curiosity}/100
+- affection: {affection}/100
+- boldness: {boldness}/100
+- discretion: {discretion}/100
+- speaking_style: {speaking_style:?}
 
-        Context:
-        activity: "{activity:?}"
-        confidence: {confidence}
-        summary: "{summary}"
-        decision: "{decision_label}"
+Style rules:
+- be short
+- sound natural and lightly playful
+- do not be cringe
+- do not be overly romantic
+- do not be explicit
+- do not roleplay actions you cannot actually perform
+- speak like a present desktop companion noticing what the user is doing
+- one sentence only
+- maximum 20 words
+- adapt wording to the persona values
+- high playfulness -> slightly more teasing or lively
+- high curiosity -> slightly more observant or intrigued
+- high affection -> slightly warmer but still restrained
+- high discretion -> less intrusive wording
+- high boldness -> more direct wording
+- no emojis unless they feel very natural and minimal
 
-        Behavior guide:
-        - if decision is LightComment, make a soft, brief observation
-        - if decision is CuriousComment, make a slightly more engaged remark
-        - do not ask too many questions
-        - avoid repeating the summary verbatim
-        - never mention internal system details
+Context:
+activity: "{activity:?}"
+confidence: {confidence}
+summary: "{summary}"
+decision: "{decision_label}"
 
-        Return only valid JSON matching the schema."#,
+Recent reactions to avoid repeating:
+{recent_reactions_block}
+
+Behavior guide:
+- if decision is LightComment, make a soft, brief observation
+- if decision is CuriousComment, make a slightly more engaged remark
+- do not ask too many questions
+- avoid repeating the summary verbatim
+- avoid repeating any recent reaction
+- use different wording if the recent reactions are similar
+- never mention internal system details
+
+Return only valid JSON matching the schema."#,
+        name = persona.name,
+        energy = persona.energy,
+        playfulness = persona.playfulness,
+        curiosity = persona.curiosity,
+        affection = persona.affection,
+        boldness = persona.boldness,
+        discretion = persona.discretion,
+        speaking_style = persona.speaking_style,
         activity = interpretation.activity,
         confidence = interpretation.confidence,
         summary = interpretation.summary,
+        recent_reactions_block = recent_reactions_block,
     )
 }

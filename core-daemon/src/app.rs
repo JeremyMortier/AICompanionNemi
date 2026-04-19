@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use tracing::{Level, error, info};
+use tracing::{Level, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::activity::classify_activity;
@@ -14,7 +14,7 @@ use crate::reaction::GeneratedReaction;
 use crate::state::{ActiveWindowState, AppState};
 use crate::tick::run_tick;
 
-const INTERPRETATION_THRESHOLD_MS: u128 = 2_000;
+const INTERPRETATION_THRESHOLD_MS: u128 = 5_000;
 
 pub async fn run() -> Result<()> {
     init_tracing();
@@ -166,7 +166,7 @@ async fn process_events(
                 interpretation,
                 stable_for_ms,
             } => {
-                handle_interpreted_context(state, event_bus, interpretation, stable_for_ms);
+                handle_interpreted_context(state, event_bus, config, interpretation, stable_for_ms);
             }
             AppEvent::ReactionDecisionMade(decision) => {
                 handle_reaction_decision(state, event_bus, decision);
@@ -174,14 +174,25 @@ async fn process_events(
             AppEvent::ReactionGenerationRequested {
                 decision,
                 interpretation,
-            } => match llm.generate_reaction(&interpretation, &decision).await {
-                Ok(generated) => {
-                    event_bus.push(AppEvent::ReactionGenerated(generated));
+                recent_reactions,
+            } => {
+                match llm
+                    .generate_reaction(
+                        &interpretation,
+                        &decision,
+                        &recent_reactions,
+                        &config.persona,
+                    )
+                    .await
+                {
+                    Ok(generated) => {
+                        event_bus.push(AppEvent::ReactionGenerated(generated));
+                    }
+                    Err(err) => {
+                        error!(error = %err, "failed to generate reaction with llm");
+                    }
                 }
-                Err(err) => {
-                    error!(error = %err, "failed to generate reaction with llm");
-                }
-            },
+            }
             AppEvent::ReactionGenerated(generated) => {
                 handle_generated_reaction(state, generated);
             }
@@ -192,6 +203,7 @@ async fn process_events(
 fn handle_interpreted_context(
     state: &mut AppState,
     event_bus: &mut EventBus,
+    config: &AppConfig,
     interpretation: ContextInterpretation,
     stable_for_ms: u128,
 ) {
@@ -205,7 +217,13 @@ fn handle_interpreted_context(
 
     state.last_interpretation = Some(interpretation.clone());
 
-    let decision = decide_reaction(state, &interpretation, stable_for_ms, Instant::now());
+    let decision = decide_reaction(
+        state,
+        config,
+        &interpretation,
+        stable_for_ms,
+        Instant::now(),
+    );
 
     event_bus.push(AppEvent::ReactionDecisionMade(decision));
 }
@@ -227,6 +245,7 @@ fn handle_reaction_decision(
                 event_bus.push(AppEvent::ReactionGenerationRequested {
                     decision: decision.clone(),
                     interpretation,
+                    recent_reactions: state.recent_reaction_memory.recent_texts(),
                 });
             }
         }
@@ -238,6 +257,7 @@ fn handle_reaction_decision(
                 event_bus.push(AppEvent::ReactionGenerationRequested {
                     decision: decision.clone(),
                     interpretation,
+                    recent_reactions: state.recent_reaction_memory.recent_texts(),
                 });
             }
         }
@@ -247,8 +267,18 @@ fn handle_reaction_decision(
 }
 
 fn handle_generated_reaction(state: &mut AppState, generated: GeneratedReaction) {
+    if state.recent_reaction_memory.is_too_similar(&generated.text) {
+        warn!(
+            reaction = %generated.text,
+            "generated reaction dropped because it is too similar to recent history"
+        );
+        return;
+    }
+
     info!(reaction = %generated.text, "generated reaction");
-    state.last_generated_reaction = Some(generated);
+
+    state.last_generated_reaction = Some(generated.clone());
+    state.recent_reaction_memory.push(generated);
 }
 
 fn should_request_interpretation(
@@ -264,7 +294,7 @@ fn should_request_interpretation(
         crate::activity::UserActivity::Browsing => true,
         crate::activity::UserActivity::Watching => true,
         crate::activity::UserActivity::Coding => true,
-        crate::activity::UserActivity::Chatting => true,
+        crate::activity::UserActivity::Chatting => false,
         crate::activity::UserActivity::Gaming => true,
     }
 }
