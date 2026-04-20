@@ -10,11 +10,10 @@ use crate::context::ContextInterpretation;
 use crate::decision::{ReactionDecision, decide_reaction};
 use crate::events::{AppEvent, EventBus};
 use crate::llm::LlmClient;
+use crate::mood::MoodState;
 use crate::reaction::GeneratedReaction;
 use crate::state::{ActiveWindowState, AppState};
 use crate::tick::run_tick;
-
-const INTERPRETATION_THRESHOLD_MS: u128 = 5_000;
 
 pub async fn run() -> Result<()> {
     init_tracing();
@@ -80,8 +79,16 @@ async fn process_events(
                                 "window still active"
                             );
 
+                            let mut next_mood = state.mood.clone();
+                            next_mood.update_from_activity(&current.activity, stable_for_ms);
+                            event_bus.push(AppEvent::MoodUpdated(next_mood));
+
                             if !current.interpretation_requested
-                                && should_request_interpretation(&current.activity, stable_for_ms)
+                                && should_request_interpretation(
+                                    config,
+                                    &current.activity,
+                                    stable_for_ms,
+                                )
                             {
                                 current.interpretation_requested = true;
 
@@ -103,6 +110,10 @@ async fn process_events(
                                 interpretation_requested: false,
                             });
 
+                            let mut next_mood = state.mood.clone();
+                            next_mood.update_from_activity(&activity, 0);
+                            event_bus.push(AppEvent::MoodUpdated(next_mood));
+
                             info!(
                                 tick = state.tick_count,
                                 process_name = %process_name,
@@ -123,6 +134,10 @@ async fn process_events(
                             interpretation_requested: false,
                         });
 
+                        let mut next_mood = state.mood.clone();
+                        next_mood.update_from_activity(&activity, 0);
+                        event_bus.push(AppEvent::MoodUpdated(next_mood));
+
                         info!(
                             tick = state.tick_count,
                             process_name = %process_name,
@@ -132,6 +147,9 @@ async fn process_events(
                         );
                     }
                 }
+            }
+            AppEvent::MoodUpdated(new_mood) => {
+                handle_mood_updated(state, new_mood);
             }
             AppEvent::ContextInterpretationRequested {
                 title,
@@ -175,6 +193,7 @@ async fn process_events(
                 decision,
                 interpretation,
                 recent_reactions,
+                mood,
             } => {
                 match llm
                     .generate_reaction(
@@ -182,6 +201,7 @@ async fn process_events(
                         &decision,
                         &recent_reactions,
                         &config.persona,
+                        &mood,
                     )
                     .await
                 {
@@ -198,6 +218,22 @@ async fn process_events(
             }
         }
     }
+}
+
+fn handle_mood_updated(state: &mut AppState, new_mood: MoodState) {
+    let changed = std::mem::discriminant(&state.mood.current)
+        != std::mem::discriminant(&new_mood.current)
+        || state.mood.intensity != new_mood.intensity;
+
+    if changed {
+        info!(
+            mood = ?new_mood.current,
+            intensity = new_mood.intensity,
+            "mood updated"
+        );
+    }
+
+    state.mood = new_mood;
 }
 
 fn handle_interpreted_context(
@@ -246,6 +282,7 @@ fn handle_reaction_decision(
                     decision: decision.clone(),
                     interpretation,
                     recent_reactions: state.recent_reaction_memory.recent_texts(),
+                    mood: state.mood.clone(),
                 });
             }
         }
@@ -258,6 +295,7 @@ fn handle_reaction_decision(
                     decision: decision.clone(),
                     interpretation,
                     recent_reactions: state.recent_reaction_memory.recent_texts(),
+                    mood: state.mood.clone(),
                 });
             }
         }
@@ -282,10 +320,11 @@ fn handle_generated_reaction(state: &mut AppState, generated: GeneratedReaction)
 }
 
 fn should_request_interpretation(
+    config: &AppConfig,
     activity: &crate::activity::UserActivity,
     stable_for_ms: u128,
 ) -> bool {
-    if stable_for_ms < INTERPRETATION_THRESHOLD_MS {
+    if stable_for_ms < config.interpretation_threshold_ms {
         return false;
     }
 

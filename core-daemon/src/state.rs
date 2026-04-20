@@ -4,6 +4,7 @@ use crate::activity::UserActivity;
 use crate::context::ContextInterpretation;
 use crate::decision::ReactionDecision;
 use crate::memory::RecentReactionMemory;
+use crate::mood::MoodState;
 use crate::reaction::GeneratedReaction;
 
 #[derive(Debug, Clone)]
@@ -26,6 +27,7 @@ pub struct AppState {
     pub last_reaction_at: Option<Instant>,
     pub last_generated_reaction: Option<GeneratedReaction>,
     pub recent_reaction_memory: RecentReactionMemory,
+    pub mood: MoodState,
 }
 
 impl AppState {
@@ -38,6 +40,7 @@ impl AppState {
             last_reaction_at: None,
             last_generated_reaction: None,
             recent_reaction_memory: RecentReactionMemory::new(),
+            mood: MoodState::new(),
         }
     }
 

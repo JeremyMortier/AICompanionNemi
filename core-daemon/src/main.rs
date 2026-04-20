@@ -6,6 +6,7 @@ mod decision;
 mod events;
 mod llm;
 mod memory;
+mod mood;
 mod observation;
 mod persona;
 mod reaction;

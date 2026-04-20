@@ -86,8 +86,10 @@ impl LlmClient {
         decision: &ReactionDecision,
         recent_reactions: &[String],
         persona: &crate::persona::PersonaProfile,
+        mood: &crate::mood::MoodState,
     ) -> Result<GeneratedReaction> {
-        let prompt = build_reaction_prompt(interpretation, decision, recent_reactions, persona);
+        let prompt =
+            build_reaction_prompt(interpretation, decision, recent_reactions, persona, mood);
 
         let request = OllamaGenerateRequest {
             model: self.model.clone(),
@@ -208,6 +210,7 @@ fn build_reaction_prompt(
     decision: &ReactionDecision,
     recent_reactions: &[String],
     persona: &crate::persona::PersonaProfile,
+    mood: &crate::mood::MoodState,
 ) -> String {
     let decision_label = match decision {
         ReactionDecision::StaySilent { .. } => "StaySilent",
@@ -238,6 +241,10 @@ Persona:
 - discretion: {discretion}/100
 - speaking_style: {speaking_style:?}
 
+Current mood:
+- mood: {mood_name:?}
+- mood_intensity: {mood_intensity}/100
+
 Style rules:
 - be short
 - sound natural and lightly playful
@@ -248,12 +255,14 @@ Style rules:
 - speak like a present desktop companion noticing what the user is doing
 - one sentence only
 - maximum 20 words
-- adapt wording to the persona values
-- high playfulness -> slightly more teasing or lively
-- high curiosity -> slightly more observant or intrigued
-- high affection -> slightly warmer but still restrained
-- high discretion -> less intrusive wording
-- high boldness -> more direct wording
+- adapt wording to both persona and current mood
+- high mood intensity should be noticeable but still controlled
+- if mood is Playful, sound a bit more lively
+- if mood is Curious, sound a bit more intrigued or observant
+- if mood is Focused, sound more restrained and precise
+- if mood is Calm, sound softer and more relaxed
+- if mood is Proud, sound slightly confident
+- if mood is Sulky, sound mildly pouty but still subtle
 - no emojis unless they feel very natural and minimal
 
 Context:
@@ -283,6 +292,8 @@ Return only valid JSON matching the schema."#,
         boldness = persona.boldness,
         discretion = persona.discretion,
         speaking_style = persona.speaking_style,
+        mood_name = mood.current,
+        mood_intensity = mood.intensity,
         activity = interpretation.activity,
         confidence = interpretation.confidence,
         summary = interpretation.summary,

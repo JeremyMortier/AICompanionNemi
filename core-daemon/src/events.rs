@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use crate::activity::UserActivity;
 use crate::context::ContextInterpretation;
 use crate::decision::ReactionDecision;
+use crate::mood::MoodState;
 use crate::reaction::GeneratedReaction;
 
 #[derive(Debug, Clone)]
@@ -13,6 +14,7 @@ pub enum AppEvent {
         process_id: u32,
         process_name: String,
     },
+    MoodUpdated(MoodState),
     ContextInterpretationRequested {
         title: String,
         process_name: String,
@@ -28,6 +30,7 @@ pub enum AppEvent {
         decision: ReactionDecision,
         interpretation: ContextInterpretation,
         recent_reactions: Vec<String>,
+        mood: MoodState,
     },
     ReactionGenerated(GeneratedReaction),
 }
