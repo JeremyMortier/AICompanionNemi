@@ -14,6 +14,11 @@ pub enum AppEvent {
         process_id: u32,
         process_name: String,
     },
+    ScreenCaptured {
+        path: String,
+        width: u32,
+        height: u32,
+    },
     MoodUpdated(MoodState),
     ContextInterpretationRequested {
         title: String,

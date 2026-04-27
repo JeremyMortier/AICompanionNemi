@@ -1,6 +1,7 @@
 use crate::config::AppConfig;
 use crate::events::{AppEvent, EventBus};
 use crate::observation::get_active_window_info;
+use crate::screen::capture_primary_screen;
 use crate::state::AppState;
 use tracing::warn;
 
@@ -18,6 +19,21 @@ pub fn run_tick(state: &mut AppState, _config: &AppConfig, event_bus: &mut Event
         Ok(None) => {}
         Err(error) => {
             warn!(tick = state.tick_count, error = %error, "failed to get active window info");
+        }
+    }
+
+    if state.tick_count.is_multiple_of(5) {
+        match capture_primary_screen("tmp/screenshots") {
+            Ok(capture) => {
+                event_bus.push(AppEvent::ScreenCaptured {
+                    path: capture.path.display().to_string(),
+                    width: capture.width,
+                    height: capture.height,
+                });
+            }
+            Err(error) => {
+                warn!(tick = state.tick_count, error = %error, "failed to capture screen");
+            }
         }
     }
 }

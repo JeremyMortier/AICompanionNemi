@@ -1,6 +1,10 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
+use tokio::sync::RwLock;
 use tracing::{Level, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -12,6 +16,8 @@ use crate::events::{AppEvent, EventBus};
 use crate::llm::LlmClient;
 use crate::mood::MoodState;
 use crate::reaction::GeneratedReaction;
+use crate::server::{SharedSnapshot, run_server};
+use crate::snapshot::{ActiveWindowSnapshot, AppSnapshot, InterpretationSnapshot, MoodSnapshot};
 use crate::state::{ActiveWindowState, AppState};
 use crate::tick::run_tick;
 
@@ -26,16 +32,28 @@ pub async fn run() -> Result<()> {
         "gemma3:4b".to_string(),
     );
 
+    let shared_snapshot: SharedSnapshot = Arc::new(RwLock::new(build_snapshot(&state, &config)));
+
+    {
+        let server_snapshot = Arc::clone(&shared_snapshot);
+        tokio::spawn(async move {
+            if let Err(err) = run_server(server_snapshot).await {
+                error!(error = %err, "server task failed");
+            }
+        });
+    }
+
     info!("Starting core-daemon...");
     info!("Companion name: {}", config.companion_name);
     info!("Tick interval: {} ms", config.tick_interval_ms);
+    info!("Local API available at http://127.0.0.1:7878/state");
 
     let mut interval = tokio::time::interval(Duration::from_millis(config.tick_interval_ms));
 
     loop {
         interval.tick().await;
         event_bus.push(AppEvent::Tick);
-        process_events(&mut event_bus, &mut state, &config, &llm).await;
+        process_events(&mut event_bus, &mut state, &config, &llm, &shared_snapshot).await;
     }
 }
 
@@ -44,6 +62,7 @@ async fn process_events(
     state: &mut AppState,
     config: &AppConfig,
     llm: &LlmClient,
+    shared_snapshot: &SharedSnapshot,
 ) {
     while let Some(event) = event_bus.pop() {
         match event {
@@ -83,14 +102,13 @@ async fn process_events(
                             next_mood.update_from_activity(&current.activity, stable_for_ms);
                             event_bus.push(AppEvent::MoodUpdated(next_mood));
 
-                            if !current.interpretation_requested
-                                && should_request_interpretation(
-                                    config,
-                                    &current.activity,
-                                    stable_for_ms,
-                                )
-                            {
-                                current.interpretation_requested = true;
+                            if should_request_interpretation_for_current_window(
+                                config,
+                                current,
+                                stable_for_ms,
+                                now,
+                            ) {
+                                current.last_interpretation_requested_at = Some(now);
 
                                 event_bus.push(AppEvent::ContextInterpretationRequested {
                                     title: current.title.clone(),
@@ -107,7 +125,7 @@ async fn process_events(
                                 activity: activity.clone(),
                                 first_seen_at: now,
                                 last_seen_at: now,
-                                interpretation_requested: false,
+                                last_interpretation_requested_at: None,
                             });
 
                             let mut next_mood = state.mood.clone();
@@ -131,7 +149,7 @@ async fn process_events(
                             activity: activity.clone(),
                             first_seen_at: now,
                             last_seen_at: now,
-                            interpretation_requested: false,
+                            last_interpretation_requested_at: None,
                         });
 
                         let mut next_mood = state.mood.clone();
@@ -216,7 +234,23 @@ async fn process_events(
             AppEvent::ReactionGenerated(generated) => {
                 handle_generated_reaction(state, generated);
             }
+            AppEvent::ScreenCaptured {
+                path,
+                width,
+                height,
+            } => {
+                info!(
+                    path = %path,
+                    width = width,
+                    height = height,
+                    "screen captured"
+                );
+
+                state.last_screen_capture_path = Some(path);
+            }
         }
+
+        sync_snapshot(shared_snapshot, state, config).await;
     }
 }
 
@@ -338,6 +372,46 @@ fn should_request_interpretation(
     }
 }
 
+async fn sync_snapshot(shared_snapshot: &SharedSnapshot, state: &AppState, config: &AppConfig) {
+    let snapshot = build_snapshot(state, config);
+    let mut guard = shared_snapshot.write().await;
+    *guard = snapshot;
+}
+
+fn build_snapshot(state: &AppState, config: &AppConfig) -> AppSnapshot {
+    AppSnapshot {
+        companion_name: config.companion_name.clone(),
+        tick_count: state.tick_count,
+        active_window: state
+            .active_window
+            .as_ref()
+            .map(|window| ActiveWindowSnapshot {
+                title: window.title.clone(),
+                process_id: window.process_id,
+                process_name: window.process_name.clone(),
+                activity: format!("{:?}", window.activity),
+            }),
+        last_interpretation: state.last_interpretation.as_ref().map(|interp| {
+            InterpretationSnapshot {
+                activity: format!("{:?}", interp.activity),
+                confidence: interp.confidence,
+                summary: interp.summary.clone(),
+                should_comment: interp.should_comment,
+            }
+        }),
+        last_decision: state.last_decision.as_ref().map(|d| format!("{:?}", d)),
+        last_generated_reaction: state
+            .last_generated_reaction
+            .as_ref()
+            .map(|r| r.text.clone()),
+        mood: MoodSnapshot {
+            current: format!("{:?}", state.mood.current),
+            intensity: state.mood.intensity,
+        },
+        last_screen_capture_path: state.last_screen_capture_path.clone(),
+    }
+}
+
 fn init_tracing() {
     let filter = EnvFilter::builder()
         .with_default_directive(Level::INFO.into())
@@ -348,4 +422,22 @@ fn init_tracing() {
         .with_target(false)
         .compact()
         .init();
+}
+
+fn should_request_interpretation_for_current_window(
+    config: &AppConfig,
+    current: &ActiveWindowState,
+    stable_for_ms: u128,
+    now: Instant,
+) -> bool {
+    if !should_request_interpretation(config, &current.activity, stable_for_ms) {
+        return false;
+    }
+
+    match current.last_interpretation_requested_at {
+        None => true,
+        Some(last_time) => {
+            now.duration_since(last_time).as_millis() >= config.reinterpret_same_window_cooldown_ms
+        }
+    }
 }

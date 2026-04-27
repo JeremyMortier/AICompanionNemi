@@ -156,13 +156,14 @@ fn minimum_confidence_for_persona(config: &AppConfig) -> f32 {
     }
 }
 
+//il faut traiter le dernier chat
 fn minimum_stable_duration_for_persona(config: &AppConfig) -> u128 {
     if config.persona.discretion >= 75 {
-        6_000
+        2_500
     } else if config.persona.boldness >= 75 {
-        3_000
+        1_000
     } else {
-        4_000
+        1_500
     }
 }
 

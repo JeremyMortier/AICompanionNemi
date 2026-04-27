@@ -15,7 +15,7 @@ pub struct ActiveWindowState {
     pub activity: UserActivity,
     pub first_seen_at: Instant,
     pub last_seen_at: Instant,
-    pub interpretation_requested: bool,
+    pub last_interpretation_requested_at: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -28,6 +28,7 @@ pub struct AppState {
     pub last_generated_reaction: Option<GeneratedReaction>,
     pub recent_reaction_memory: RecentReactionMemory,
     pub mood: MoodState,
+    pub last_screen_capture_path: Option<String>,
 }
 
 impl AppState {
@@ -41,6 +42,7 @@ impl AppState {
             last_generated_reaction: None,
             recent_reaction_memory: RecentReactionMemory::new(),
             mood: MoodState::new(),
+            last_screen_capture_path: None,
         }
     }
 

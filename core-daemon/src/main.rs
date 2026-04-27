@@ -10,6 +10,9 @@ mod mood;
 mod observation;
 mod persona;
 mod reaction;
+mod screen;
+mod server;
+mod snapshot;
 mod state;
 mod tick;
 
