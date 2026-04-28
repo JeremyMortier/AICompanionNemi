@@ -7,6 +7,14 @@ use crate::mood::MoodState;
 use crate::reaction::GeneratedReaction;
 
 #[derive(Debug, Clone)]
+pub struct ScreenCaptureEvent {
+    pub path: String,
+    pub screen_index: usize,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone)]
 pub enum AppEvent {
     Tick,
     ActiveWindowDetected {
@@ -14,10 +22,8 @@ pub enum AppEvent {
         process_id: u32,
         process_name: String,
     },
-    ScreenCaptured {
-        path: String,
-        width: u32,
-        height: u32,
+    ScreensCaptured {
+        captures: Vec<ScreenCaptureEvent>,
     },
     MoodUpdated(MoodState),
     ContextInterpretationRequested {

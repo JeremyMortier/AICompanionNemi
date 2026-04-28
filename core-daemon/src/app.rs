@@ -234,19 +234,20 @@ async fn process_events(
             AppEvent::ReactionGenerated(generated) => {
                 handle_generated_reaction(state, generated);
             }
-            AppEvent::ScreenCaptured {
-                path,
-                width,
-                height,
-            } => {
-                info!(
-                    path = %path,
-                    width = width,
-                    height = height,
-                    "screen captured"
-                );
+            AppEvent::ScreensCaptured { captures } => {
+                info!(count = captures.len(), "screens captured");
 
-                state.last_screen_capture_path = Some(path);
+                for capture in &captures {
+                    info!(
+                        screen_index = capture.screen_index,
+                        path = %capture.path,
+                        width = capture.width,
+                        height = capture.height,
+                        "screen capture saved"
+                    );
+                }
+
+                state.last_screen_captures = captures;
             }
         }
 
@@ -408,7 +409,16 @@ fn build_snapshot(state: &AppState, config: &AppConfig) -> AppSnapshot {
             current: format!("{:?}", state.mood.current),
             intensity: state.mood.intensity,
         },
-        last_screen_capture_path: state.last_screen_capture_path.clone(),
+        last_screen_captures: state
+            .last_screen_captures
+            .iter()
+            .map(|capture| crate::snapshot::ScreenCaptureSnapshot {
+                path: capture.path.clone(),
+                screen_index: capture.screen_index,
+                width: capture.width,
+                height: capture.height,
+            })
+            .collect(),
     }
 }
 

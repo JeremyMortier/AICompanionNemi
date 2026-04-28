@@ -1,7 +1,8 @@
 use crate::config::AppConfig;
+use crate::events::ScreenCaptureEvent;
 use crate::events::{AppEvent, EventBus};
 use crate::observation::get_active_window_info;
-use crate::screen::capture_primary_screen;
+use crate::screen::capture_all_screens;
 use crate::state::AppState;
 use tracing::warn;
 
@@ -23,16 +24,22 @@ pub fn run_tick(state: &mut AppState, _config: &AppConfig, event_bus: &mut Event
     }
 
     if state.tick_count.is_multiple_of(5) {
-        match capture_primary_screen("tmp/screenshots") {
-            Ok(capture) => {
-                event_bus.push(AppEvent::ScreenCaptured {
-                    path: capture.path.display().to_string(),
-                    width: capture.width,
-                    height: capture.height,
+        match capture_all_screens("tmp/screenshots") {
+            Ok(captures) => {
+                event_bus.push(AppEvent::ScreensCaptured {
+                    captures: captures
+                        .into_iter()
+                        .map(|capture| ScreenCaptureEvent {
+                            path: capture.path.display().to_string(),
+                            screen_index: capture.screen_index,
+                            width: capture.width,
+                            height: capture.height,
+                        })
+                        .collect(),
                 });
             }
             Err(error) => {
-                warn!(tick = state.tick_count, error = %error, "failed to capture screen");
+                warn!(tick = state.tick_count, error = %error, "failed to capture screens");
             }
         }
     }

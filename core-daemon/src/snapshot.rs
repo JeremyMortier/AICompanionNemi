@@ -31,5 +31,13 @@ pub struct AppSnapshot {
     pub last_decision: Option<String>,
     pub last_generated_reaction: Option<String>,
     pub mood: MoodSnapshot,
-    pub last_screen_capture_path: Option<String>,
+    pub last_screen_captures: Vec<ScreenCaptureSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct ScreenCaptureSnapshot {
+    pub path: String,
+    pub screen_index: usize,
+    pub width: u32,
+    pub height: u32,
 }

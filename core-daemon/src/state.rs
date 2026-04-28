@@ -28,7 +28,7 @@ pub struct AppState {
     pub last_generated_reaction: Option<GeneratedReaction>,
     pub recent_reaction_memory: RecentReactionMemory,
     pub mood: MoodState,
-    pub last_screen_capture_path: Option<String>,
+    pub last_screen_captures: Vec<crate::events::ScreenCaptureEvent>,
 }
 
 impl AppState {
@@ -42,7 +42,7 @@ impl AppState {
             last_generated_reaction: None,
             recent_reaction_memory: RecentReactionMemory::new(),
             mood: MoodState::new(),
-            last_screen_capture_path: None,
+            last_screen_captures: Vec::new(),
         }
     }
 
