@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use crate::activity::UserActivity;
 use crate::context::ContextInterpretation;
+use crate::context_fusion::FusedContext;
 use crate::decision::ReactionDecision;
 use crate::memory::RecentReactionMemory;
 use crate::mood::MoodState;
@@ -16,6 +17,10 @@ pub struct ActiveWindowState {
     pub first_seen_at: Instant,
     pub last_seen_at: Instant,
     pub last_interpretation_requested_at: Option<Instant>,
+    pub window_left: i32,
+    pub window_top: i32,
+    pub window_right: i32,
+    pub window_bottom: i32,
 }
 
 #[derive(Debug)]
@@ -29,6 +34,7 @@ pub struct AppState {
     pub recent_reaction_memory: RecentReactionMemory,
     pub mood: MoodState,
     pub last_screen_captures: Vec<crate::events::ScreenCaptureEvent>,
+    pub last_fused_context: Option<FusedContext>,
 }
 
 impl AppState {
@@ -43,6 +49,7 @@ impl AppState {
             recent_reaction_memory: RecentReactionMemory::new(),
             mood: MoodState::new(),
             last_screen_captures: Vec::new(),
+            last_fused_context: None,
         }
     }
 

@@ -15,6 +15,10 @@ pub fn run_tick(state: &mut AppState, _config: &AppConfig, event_bus: &mut Event
                 title: window.title,
                 process_id: window.process_id,
                 process_name: window.process_name,
+                window_left: window.rect.left,
+                window_top: window.rect.top,
+                window_right: window.rect.right,
+                window_bottom: window.rect.bottom,
             });
         }
         Ok(None) => {}
@@ -34,6 +38,8 @@ pub fn run_tick(state: &mut AppState, _config: &AppConfig, event_bus: &mut Event
                             screen_index: capture.screen_index,
                             width: capture.width,
                             height: capture.height,
+                            x: capture.x,
+                            y: capture.y,
                         })
                         .collect(),
                 });

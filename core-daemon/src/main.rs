@@ -2,6 +2,7 @@ mod activity;
 mod app;
 mod config;
 mod context;
+mod context_fusion;
 mod decision;
 mod events;
 mod llm;
@@ -15,6 +16,7 @@ mod server;
 mod snapshot;
 mod state;
 mod tick;
+mod vision;
 
 use anyhow::Result;
 

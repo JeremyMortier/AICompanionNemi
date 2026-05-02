@@ -1,8 +1,10 @@
 use anyhow::Result;
 use sysinfo::System;
 use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
+    GetForegroundWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+    GetWindowThreadProcessId,
 };
 
 #[derive(Debug, Clone)]
@@ -10,10 +12,12 @@ pub struct ActiveWindowInfo {
     pub title: String,
     pub process_id: u32,
     pub process_name: String,
+    pub rect: WindowRect,
 }
 
 pub fn get_active_window_info() -> Result<Option<ActiveWindowInfo>> {
     let hwnd = unsafe { GetForegroundWindow() };
+    let rect = get_window_rect(hwnd)?;
 
     if hwnd.0.is_null() {
         return Ok(None);
@@ -31,6 +35,7 @@ pub fn get_active_window_info() -> Result<Option<ActiveWindowInfo>> {
         title,
         process_id,
         process_name,
+        rect,
     }))
 }
 
@@ -63,4 +68,37 @@ fn get_process_name(pid: u32) -> Option<String> {
     system
         .process(sysinfo::Pid::from_u32(pid))
         .map(|process| process.name().to_string())
+}
+
+#[derive(Debug, Clone)]
+pub struct WindowRect {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+// impl WindowRect {
+//     pub fn center_x(&self) -> i32 {
+//         (self.left + self.right) / 2
+//     }
+
+//     pub fn center_y(&self) -> i32 {
+//         (self.top + self.bottom) / 2
+//     }
+// }
+
+fn get_window_rect(hwnd: HWND) -> Result<WindowRect> {
+    let mut rect = RECT::default();
+
+    unsafe {
+        GetWindowRect(hwnd, &mut rect)?;
+    }
+
+    Ok(WindowRect {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+    })
 }

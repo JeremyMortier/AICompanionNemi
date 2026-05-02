@@ -15,6 +15,8 @@ pub struct ScreenCapture {
     pub screen_index: usize,
     pub width: u32,
     pub height: u32,
+    pub x: i32,
+    pub y: i32,
 }
 
 pub fn capture_all_screens(output_dir: impl AsRef<Path>) -> Result<Vec<ScreenCapture>> {
@@ -50,6 +52,8 @@ pub fn capture_all_screens(output_dir: impl AsRef<Path>) -> Result<Vec<ScreenCap
             screen_index: index,
             width: image.width(),
             height: image.height(),
+            x: screen.display_info.x,
+            y: screen.display_info.y,
         });
     }
 

@@ -13,6 +13,9 @@ struct OllamaGenerateRequest {
     prompt: String,
     stream: bool,
     format: serde_json::Value,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    images: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,6 +71,7 @@ impl LlmClient {
                 },
                 "required": ["activity", "confidence", "summary", "should_comment"]
             }),
+            images: None,
         };
 
         let response = self.send_generate_request(request).await?;
@@ -104,6 +108,7 @@ impl LlmClient {
                 },
                 "required": ["text"]
             }),
+            images: None,
         };
 
         let response = self.send_generate_request(request).await?;
@@ -134,6 +139,75 @@ impl LlmClient {
             .context("failed to deserialize Ollama response envelope")?;
 
         Ok(response)
+    }
+    pub async fn interpret_vision(
+        &self,
+        image_path: &str,
+        process_name: &str,
+        window_title: &str,
+        heuristic_activity: &UserActivity,
+    ) -> Result<crate::vision::VisionInterpretation> {
+        use base64::{Engine as _, engine::general_purpose};
+
+        let image_bytes = std::fs::read(image_path)
+            .with_context(|| format!("failed to read image file: {image_path}"))?;
+
+        let image_base64 = general_purpose::STANDARD.encode(image_bytes);
+
+        let prompt = format!(
+            r#"You are analyzing a screenshot of a user's computer.
+
+            Reliable system metadata:
+            process_name: "{process_name}"
+            window_title: "{window_title}"
+            heuristic_activity: "{heuristic_activity:?}"
+
+            Important rules:
+            - The system metadata is usually more reliable than visual guessing.
+            - If process_name is Discord, do not classify it as a finance or crypto app unless the screenshot clearly shows finance/crypto content.
+            - If process_name is Code.exe or similar IDE/editor, prefer Coding unless the screenshot clearly shows something else.
+            - If process_name is a browser, use both the title and the visible page to infer the activity.
+            - Do not invent app names.
+            - Be conservative.
+
+            Tasks:
+            - identify what the user is doing visually
+            - refine or correct the heuristic activity
+            - briefly describe what is actually visible on screen
+
+            Return only valid JSON matching the schema."#
+        );
+
+        let request = OllamaGenerateRequest {
+            model: "llava:7b".to_string(),
+            prompt,
+            stream: false,
+            images: Some(vec![image_base64]),
+            format: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "detected_activity": {
+                        "type": "string",
+                        "enum": ["Coding", "Browsing", "Watching", "Chatting", "Gaming", "Unknown"]
+                    },
+                    "confidence": {
+                        "type": "number"
+                    },
+                    "description": {
+                        "type": "string"
+                    }
+                },
+                "required": ["detected_activity", "confidence", "description"]
+            }),
+        };
+
+        let response = self.send_generate_request(request).await?;
+
+        let parsed = serde_json::from_str::<VisionInterpretationWire>(&response.response).context(
+            "failed to parse structured JSON returned by model for vision interpretation",
+        )?;
+
+        Ok(parsed.into_domain())
     }
 }
 
@@ -299,4 +373,21 @@ Return only valid JSON matching the schema."#,
         summary = interpretation.summary,
         recent_reactions_block = recent_reactions_block,
     )
+}
+
+#[derive(Debug, Deserialize)]
+struct VisionInterpretationWire {
+    detected_activity: String,
+    confidence: f32,
+    description: String,
+}
+
+impl VisionInterpretationWire {
+    fn into_domain(self) -> crate::vision::VisionInterpretation {
+        crate::vision::VisionInterpretation {
+            detected_activity: parse_activity(&self.detected_activity),
+            confidence: self.confidence.clamp(0.0, 1.0),
+            description: self.description,
+        }
+    }
 }

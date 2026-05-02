@@ -8,9 +8,10 @@ use tokio::sync::RwLock;
 use tracing::{Level, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
-use crate::activity::classify_activity;
+use crate::activity::{UserActivity, classify_activity};
 use crate::config::AppConfig;
 use crate::context::ContextInterpretation;
+use crate::context_fusion::fuse_context;
 use crate::decision::{ReactionDecision, decide_reaction};
 use crate::events::{AppEvent, EventBus};
 use crate::llm::LlmClient;
@@ -20,6 +21,7 @@ use crate::server::{SharedSnapshot, run_server};
 use crate::snapshot::{ActiveWindowSnapshot, AppSnapshot, InterpretationSnapshot, MoodSnapshot};
 use crate::state::{ActiveWindowState, AppState};
 use crate::tick::run_tick;
+use crate::vision::VisionInterpretation;
 
 pub async fn run() -> Result<()> {
     init_tracing();
@@ -73,6 +75,10 @@ async fn process_events(
                 title,
                 process_id,
                 process_name,
+                window_left,
+                window_top,
+                window_right,
+                window_bottom,
             } => {
                 let now = Instant::now();
                 let activity = classify_activity(&process_name, &title);
@@ -81,7 +87,11 @@ async fn process_events(
                     Some(current) => {
                         let is_same = current.title == title
                             && current.process_id == process_id
-                            && current.process_name == process_name;
+                            && current.process_name == process_name
+                            && current.window_left == window_left
+                            && current.window_top == window_top
+                            && current.window_right == window_right
+                            && current.window_bottom == window_bottom;
 
                         if is_same {
                             current.last_seen_at = now;
@@ -126,6 +136,10 @@ async fn process_events(
                                 first_seen_at: now,
                                 last_seen_at: now,
                                 last_interpretation_requested_at: None,
+                                window_left,
+                                window_top,
+                                window_right,
+                                window_bottom,
                             });
 
                             let mut next_mood = state.mood.clone();
@@ -150,6 +164,10 @@ async fn process_events(
                             first_seen_at: now,
                             last_seen_at: now,
                             last_interpretation_requested_at: None,
+                            window_left,
+                            window_top,
+                            window_right,
+                            window_bottom,
                         });
 
                         let mut next_mood = state.mood.clone();
@@ -247,7 +265,62 @@ async fn process_events(
                     );
                 }
 
+                let focused_capture = find_focused_screen_capture(&captures, state)
+                    .or_else(|| captures.first())
+                    .cloned();
+
                 state.last_screen_captures = captures;
+
+                if let Some(capture) = focused_capture {
+                    let active_window = state.active_window.as_ref();
+
+                    event_bus.push(AppEvent::VisionInterpretationRequested {
+                        image_path: capture.path,
+                        process_name: active_window
+                            .map(|w| w.process_name.clone())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                        window_title: active_window
+                            .map(|w| w.title.clone())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                        heuristic_activity: active_window
+                            .map(|w| w.activity.clone())
+                            .unwrap_or(UserActivity::Unknown),
+                    });
+                }
+            }
+            AppEvent::VisionInterpretationRequested {
+                image_path,
+                process_name,
+                window_title,
+                heuristic_activity,
+            } => {
+                match llm
+                    .interpret_vision(
+                        &image_path,
+                        &process_name,
+                        &window_title,
+                        &heuristic_activity,
+                    )
+                    .await
+                {
+                    Ok(result) => {
+                        event_bus.push(AppEvent::VisionInterpreted {
+                            interpretation: result,
+                        });
+                    }
+                    Err(err) => {
+                        error!(error = %err, "vision interpretation failed");
+                    }
+                }
+            }
+            AppEvent::VisionInterpreted { interpretation } => {
+                handle_vision_interpreted(state, event_bus, interpretation);
+            }
+            AppEvent::ContextFused {
+                fused_context,
+                stable_for_ms,
+            } => {
+                handle_fused_context(state, event_bus, config, fused_context, stable_for_ms);
             }
         }
 
@@ -273,10 +346,10 @@ fn handle_mood_updated(state: &mut AppState, new_mood: MoodState) {
 
 fn handle_interpreted_context(
     state: &mut AppState,
-    event_bus: &mut EventBus,
-    config: &AppConfig,
+    _event_bus: &mut EventBus,
+    _config: &AppConfig,
     interpretation: ContextInterpretation,
-    stable_for_ms: u128,
+    _stable_for_ms: u128,
 ) {
     info!(
         activity = ?interpretation.activity,
@@ -286,17 +359,7 @@ fn handle_interpreted_context(
         "context interpreted"
     );
 
-    state.last_interpretation = Some(interpretation.clone());
-
-    let decision = decide_reaction(
-        state,
-        config,
-        &interpretation,
-        stable_for_ms,
-        Instant::now(),
-    );
-
-    event_bus.push(AppEvent::ReactionDecisionMade(decision));
+    state.last_interpretation = Some(interpretation);
 }
 
 fn handle_reaction_decision(
@@ -450,4 +513,95 @@ fn should_request_interpretation_for_current_window(
             now.duration_since(last_time).as_millis() >= config.reinterpret_same_window_cooldown_ms
         }
     }
+}
+
+fn find_focused_screen_capture<'a>(
+    captures: &'a [crate::events::ScreenCaptureEvent],
+    state: &AppState,
+) -> Option<&'a crate::events::ScreenCaptureEvent> {
+    let window = state.active_window.as_ref()?;
+
+    let center_x = (window.window_left + window.window_right) / 2;
+    let center_y = (window.window_top + window.window_bottom) / 2;
+
+    captures.iter().find(|capture| {
+        let left = capture.x;
+        let top = capture.y;
+        let right = capture.x + capture.width as i32;
+        let bottom = capture.y + capture.height as i32;
+
+        center_x >= left && center_x < right && center_y >= top && center_y < bottom
+    })
+}
+
+fn handle_vision_interpreted(
+    state: &mut AppState,
+    event_bus: &mut EventBus,
+    vision: VisionInterpretation,
+) {
+    info!(
+        activity = ?vision.detected_activity,
+        confidence = vision.confidence,
+        description = %vision.description,
+        "vision interpreted"
+    );
+
+    let Some(window) = state.active_window.as_ref() else {
+        return;
+    };
+
+    let stable_for_ms = window
+        .last_seen_at
+        .duration_since(window.first_seen_at)
+        .as_millis();
+
+    let fused_context = fuse_context(
+        &window.process_name,
+        &window.title,
+        state.last_interpretation.as_ref(),
+        Some(&vision),
+        &window.activity,
+    );
+
+    event_bus.push(AppEvent::ContextFused {
+        fused_context,
+        stable_for_ms,
+    });
+}
+
+fn handle_fused_context(
+    state: &mut AppState,
+    event_bus: &mut EventBus,
+    config: &AppConfig,
+    fused_context: crate::context_fusion::FusedContext,
+    stable_for_ms: u128,
+) {
+    info!(
+        activity = ?fused_context.activity,
+        confidence = fused_context.confidence,
+        source = ?fused_context.source,
+        summary = %fused_context.summary,
+        "context fused"
+    );
+
+    state.last_fused_context = Some(fused_context.clone());
+
+    let interpretation = ContextInterpretation {
+        activity: fused_context.activity,
+        confidence: fused_context.confidence,
+        summary: fused_context.summary,
+        should_comment: false,
+    };
+
+    state.last_interpretation = Some(interpretation.clone());
+
+    let decision = decide_reaction(
+        state,
+        config,
+        &interpretation,
+        stable_for_ms,
+        Instant::now(),
+    );
+
+    event_bus.push(AppEvent::ReactionDecisionMade(decision));
 }
