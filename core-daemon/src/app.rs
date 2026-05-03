@@ -4,11 +4,12 @@ use std::{
 };
 
 use anyhow::Result;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, mpsc};
 use tracing::{Level, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::activity::{UserActivity, classify_activity};
+use crate::chat::{ChatMessage, ChatRole};
 use crate::config::AppConfig;
 use crate::context::ContextInterpretation;
 use crate::context_fusion::fuse_context;
@@ -17,7 +18,7 @@ use crate::events::{AppEvent, EventBus};
 use crate::llm::LlmClient;
 use crate::mood::MoodState;
 use crate::reaction::GeneratedReaction;
-use crate::server::{SharedSnapshot, run_server};
+use crate::server::{ChatRequest, SharedSnapshot, run_server};
 use crate::snapshot::{ActiveWindowSnapshot, AppSnapshot, InterpretationSnapshot, MoodSnapshot};
 use crate::state::{ActiveWindowState, AppState};
 use crate::tick::run_tick;
@@ -35,11 +36,12 @@ pub async fn run() -> Result<()> {
     );
 
     let shared_snapshot: SharedSnapshot = Arc::new(RwLock::new(build_snapshot(&state, &config)));
+    let (chat_tx, mut chat_rx) = mpsc::channel::<ChatRequest>(16);
 
     {
         let server_snapshot = Arc::clone(&shared_snapshot);
         tokio::spawn(async move {
-            if let Err(err) = run_server(server_snapshot).await {
+            if let Err(err) = run_server(server_snapshot, chat_tx).await {
                 error!(error = %err, "server task failed");
             }
         });
@@ -54,6 +56,11 @@ pub async fn run() -> Result<()> {
 
     loop {
         interval.tick().await;
+
+        while let Ok(chat_request) = chat_rx.try_recv() {
+            handle_chat_request(chat_request, &mut state, &config, &llm, &shared_snapshot).await;
+        }
+
         event_bus.push(AppEvent::Tick);
         process_events(&mut event_bus, &mut state, &config, &llm, &shared_snapshot).await;
     }
@@ -482,6 +489,8 @@ fn build_snapshot(state: &AppState, config: &AppConfig) -> AppSnapshot {
                 height: capture.height,
             })
             .collect(),
+        last_chat_reply: state.last_chat_reply.clone(),
+        chat_history_len: state.chat_history.len(),
     }
 }
 
@@ -604,4 +613,48 @@ fn handle_fused_context(
     );
 
     event_bus.push(AppEvent::ReactionDecisionMade(decision));
+}
+
+async fn handle_chat_request(
+    request: ChatRequest,
+    state: &mut AppState,
+    config: &AppConfig,
+    llm: &LlmClient,
+    shared_snapshot: &SharedSnapshot,
+) {
+    let user_message = request.message;
+
+    state.chat_history.push(ChatMessage {
+        role: ChatRole::User,
+        content: user_message.clone(),
+    });
+
+    let result = llm
+        .generate_chat_reply(
+            &user_message,
+            state.last_fused_context.as_ref(),
+            &config.persona,
+            &state.mood,
+        )
+        .await;
+
+    match result {
+        Ok(reply) => {
+            let text = reply.text;
+
+            state.chat_history.push(ChatMessage {
+                role: ChatRole::Assistant,
+                content: text.clone(),
+            });
+
+            state.last_chat_reply = Some(text.clone());
+
+            let _ = request.reply_tx.send(Ok(text));
+        }
+        Err(err) => {
+            let _ = request.reply_tx.send(Err(err));
+        }
+    }
+
+    sync_snapshot(shared_snapshot, state, config).await;
 }

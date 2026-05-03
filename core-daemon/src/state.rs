@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use crate::activity::UserActivity;
+use crate::chat::ChatMessage;
 use crate::context::ContextInterpretation;
 use crate::context_fusion::FusedContext;
 use crate::decision::ReactionDecision;
@@ -35,6 +36,8 @@ pub struct AppState {
     pub mood: MoodState,
     pub last_screen_captures: Vec<crate::events::ScreenCaptureEvent>,
     pub last_fused_context: Option<FusedContext>,
+    pub chat_history: Vec<ChatMessage>,
+    pub last_chat_reply: Option<String>,
 }
 
 impl AppState {
@@ -50,6 +53,8 @@ impl AppState {
             mood: MoodState::new(),
             last_screen_captures: Vec::new(),
             last_fused_context: None,
+            chat_history: Vec::new(),
+            last_chat_reply: None,
         }
     }
 

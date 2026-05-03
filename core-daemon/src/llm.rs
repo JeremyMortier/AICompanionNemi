@@ -140,6 +140,7 @@ impl LlmClient {
 
         Ok(response)
     }
+
     pub async fn interpret_vision(
         &self,
         image_path: &str,
@@ -208,6 +209,88 @@ impl LlmClient {
         )?;
 
         Ok(parsed.into_domain())
+    }
+
+    pub async fn generate_chat_reply(
+        &self,
+        user_message: &str,
+        current_context: Option<&crate::context_fusion::FusedContext>,
+        persona: &crate::persona::PersonaProfile,
+        mood: &crate::mood::MoodState,
+    ) -> Result<crate::chat::ChatReply> {
+        let context_block = current_context
+            .map(|ctx| {
+                format!(
+                    "Current context: activity={:?}, confidence={}, summary={}",
+                    ctx.activity, ctx.confidence, ctx.summary
+                )
+            })
+            .unwrap_or_else(|| "Current context: unknown".to_string());
+
+        let prompt = format!(
+            r#"You are {name}, a lively anime-style personal AI companion.
+
+    Persona:
+    - energy: {energy}/100
+    - playfulness: {playfulness}/100
+    - curiosity: {curiosity}/100
+    - affection: {affection}/100
+    - boldness: {boldness}/100
+    - discretion: {discretion}/100
+    - speaking_style: {speaking_style:?}
+
+    Mood:
+    - current: {mood:?}
+    - intensity: {mood_intensity}/100
+
+    {context_block}
+
+    User message:
+    "{user_message}"
+
+    Rules:
+    - answer naturally as Nemi
+    - be concise
+    - stay useful
+    - do not mention internal logs, JSON, events, or system architecture
+    - do not pretend you can control the PC yet
+    - if the user asks you to act on the PC, say you can observe/comment for now
+    - one to three short sentences max
+
+    Return only valid JSON:
+    {{ "text": "..." }}"#,
+            name = persona.name,
+            energy = persona.energy,
+            playfulness = persona.playfulness,
+            curiosity = persona.curiosity,
+            affection = persona.affection,
+            boldness = persona.boldness,
+            discretion = persona.discretion,
+            speaking_style = persona.speaking_style,
+            mood = mood.current,
+            mood_intensity = mood.intensity,
+        );
+
+        let request = OllamaGenerateRequest {
+            model: self.model.clone(),
+            prompt,
+            stream: false,
+            images: None,
+            format: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string" }
+                },
+                "required": ["text"]
+            }),
+        };
+
+        let response = self.send_generate_request(request).await?;
+
+        let parsed = serde_json::from_str::<crate::chat::ChatReply>(&response.response)
+            .context("failed to parse structured JSON returned by model for chat reply")?;
+
+        Ok(parsed)
     }
 }
 

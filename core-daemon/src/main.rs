@@ -1,5 +1,6 @@
 mod activity;
 mod app;
+mod chat;
 mod config;
 mod context;
 mod context_fusion;
