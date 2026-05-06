@@ -65,6 +65,9 @@ pub enum AppEvent {
         fused_context: FusedContext,
         stable_for_ms: u128,
     },
+    ScreenTextExtracted {
+        text: String,
+    },
 }
 
 #[derive(Debug)]

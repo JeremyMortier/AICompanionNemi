@@ -34,6 +34,7 @@ pub struct AppSnapshot {
     pub last_screen_captures: Vec<ScreenCaptureSnapshot>,
     pub last_chat_reply: Option<String>,
     pub chat_history_len: usize,
+    pub last_ocr_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]

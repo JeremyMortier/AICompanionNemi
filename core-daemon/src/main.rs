@@ -10,6 +10,7 @@ mod llm;
 mod memory;
 mod mood;
 mod observation;
+mod ocr;
 mod persona;
 mod reaction;
 mod screen;

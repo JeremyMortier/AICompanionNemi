@@ -38,6 +38,7 @@ pub struct AppState {
     pub last_fused_context: Option<FusedContext>,
     pub chat_history: Vec<ChatMessage>,
     pub last_chat_reply: Option<String>,
+    pub last_ocr_text: Option<String>,
 }
 
 impl AppState {
@@ -55,6 +56,7 @@ impl AppState {
             last_fused_context: None,
             chat_history: Vec::new(),
             last_chat_reply: None,
+            last_ocr_text: None,
         }
     }
 

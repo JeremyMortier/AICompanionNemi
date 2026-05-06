@@ -24,6 +24,7 @@ pub fn fuse_context(
     text_context: Option<&ContextInterpretation>,
     vision_context: Option<&VisionInterpretation>,
     heuristic_activity: &UserActivity,
+    _ocr_text: Option<&str>,
 ) -> FusedContext {
     let process = process_name.to_lowercase();
 

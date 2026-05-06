@@ -17,6 +17,7 @@ use crate::decision::{ReactionDecision, decide_reaction};
 use crate::events::{AppEvent, EventBus};
 use crate::llm::LlmClient;
 use crate::mood::MoodState;
+use crate::ocr::extract_text_from_image;
 use crate::reaction::GeneratedReaction;
 use crate::server::{ChatRequest, SharedSnapshot, run_server};
 use crate::snapshot::{ActiveWindowSnapshot, AppSnapshot, InterpretationSnapshot, MoodSnapshot};
@@ -279,6 +280,19 @@ async fn process_events(
                 state.last_screen_captures = captures;
 
                 if let Some(capture) = focused_capture {
+                    if config.ocr_enabled {
+                        match extract_text_from_image(&config.tesseract_path, &capture.path) {
+                            Ok(text) => {
+                                if !text.trim().is_empty() {
+                                    event_bus.push(AppEvent::ScreenTextExtracted { text });
+                                }
+                            }
+                            Err(err) => {
+                                warn!(error = %err, "ocr failed");
+                            }
+                        }
+                    }
+
                     let active_window = state.active_window.as_ref();
 
                     event_bus.push(AppEvent::VisionInterpretationRequested {
@@ -328,6 +342,15 @@ async fn process_events(
                 stable_for_ms,
             } => {
                 handle_fused_context(state, event_bus, config, fused_context, stable_for_ms);
+            }
+            AppEvent::ScreenTextExtracted { text } => {
+                info!(
+                    chars = text.len(),
+                    preview = %text.lines().take(3).collect::<Vec<_>>().join(" | "),
+                    "screen text extracted"
+                );
+
+                state.last_ocr_text = Some(text);
             }
         }
 
@@ -491,6 +514,7 @@ fn build_snapshot(state: &AppState, config: &AppConfig) -> AppSnapshot {
             .collect(),
         last_chat_reply: state.last_chat_reply.clone(),
         chat_history_len: state.chat_history.len(),
+        last_ocr_text: state.last_ocr_text.clone(),
     }
 }
 
@@ -564,13 +588,19 @@ fn handle_vision_interpreted(
         .duration_since(window.first_seen_at)
         .as_millis();
 
-    let fused_context = fuse_context(
+    let mut fused_context = fuse_context(
         &window.process_name,
         &window.title,
         state.last_interpretation.as_ref(),
         Some(&vision),
         &window.activity,
+        state.last_ocr_text.as_deref(),
     );
+
+    if let Some(ocr_text) = state.last_ocr_text.as_deref() && !ocr_text.trim().is_empty() {
+        fused_context.summary.push_str("\nVisible text:\n");
+        fused_context.summary.push_str(&ocr_text.lines().take(20).collect::<Vec<_>>().join("\n"));
+    }
 
     event_bus.push(AppEvent::ContextFused {
         fused_context,

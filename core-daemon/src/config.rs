@@ -22,6 +22,9 @@ pub struct AppConfig {
     pub debug_force_reaction_in_gaming: bool,
 
     pub persona: PersonaProfile,
+
+    pub tesseract_path: String,
+    pub ocr_enabled: bool,
 }
 
 impl Default for AppConfig {
@@ -45,6 +48,9 @@ impl Default for AppConfig {
             debug_force_reaction_in_gaming: true,
 
             persona: PersonaProfile::nemi_default(),
+
+            tesseract_path: "tesseract".to_string(),
+            ocr_enabled: true,
         }
     }
 }
