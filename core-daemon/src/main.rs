@@ -18,6 +18,7 @@ mod server;
 mod snapshot;
 mod state;
 mod tick;
+mod visible_text;
 mod vision;
 
 use anyhow::Result;

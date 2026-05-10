@@ -8,6 +8,7 @@ use crate::decision::ReactionDecision;
 use crate::memory::RecentReactionMemory;
 use crate::mood::MoodState;
 use crate::reaction::GeneratedReaction;
+use crate::visible_text::VisibleTextContext;
 
 #[derive(Debug, Clone)]
 pub struct ActiveWindowState {
@@ -39,6 +40,7 @@ pub struct AppState {
     pub chat_history: Vec<ChatMessage>,
     pub last_chat_reply: Option<String>,
     pub last_ocr_text: Option<String>,
+    pub visible_text_context: Option<VisibleTextContext>,
 }
 
 impl AppState {
@@ -57,6 +59,7 @@ impl AppState {
             chat_history: Vec::new(),
             last_chat_reply: None,
             last_ocr_text: None,
+            visible_text_context: None,
         }
     }
 

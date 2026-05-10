@@ -215,6 +215,7 @@ impl LlmClient {
         &self,
         user_message: &str,
         current_context: Option<&crate::context_fusion::FusedContext>,
+        visible_text: Option<&crate::visible_text::VisibleTextContext>,
         persona: &crate::persona::PersonaProfile,
         mood: &crate::mood::MoodState,
     ) -> Result<crate::chat::ChatReply> {
@@ -237,6 +238,37 @@ impl LlmClient {
                 "Current observed screen context: unavailable or unreliable.".to_string()
             });
 
+        let screen_context = current_context
+            .map(|ctx| {
+                format!(
+                    r#"Observed screen context:
+        - activity: {:?}
+        - confidence: {}
+        - summary: {}
+        "#,
+                    ctx.activity, ctx.confidence, ctx.summary
+                )
+            })
+            .unwrap_or_else(|| "Observed screen context: unavailable.\n".to_string());
+
+        let visible_text_block = visible_text
+            .map(|visible| {
+                format!(
+                    r#"Visible text analysis:
+        - detected files: {:?}
+        - detected errors/warnings: {:?}
+        - detected keywords: {:?}
+        - OCR preview:
+        {}
+        "#,
+                    visible.detected_files,
+                    visible.detected_errors,
+                    visible.detected_keywords,
+                    visible.raw_preview
+                )
+            })
+            .unwrap_or_else(|| "Visible text analysis: unavailable.\n".to_string());
+
         let prompt = format!(
             r#"You are {name}, a lively anime-style personal AI companion for a private desktop setup.
 
@@ -254,15 +286,18 @@ impl LlmClient {
         - intensity: {mood_intensity}/100
 
         {context_block}
+        {screen_context}
+        {visible_text_block}
 
         User message:
         "{user_message}"
 
         Rules:
         - Answer in the same language as the user message.
-        - Use the observed screen context silently when it helps.
+        - Use the observed screen context and visible text silently when helpful.
         - Do not invent details that are not supported by the context.
         - If the user asks about "this", "that", "the function", "the file", or what to do next, infer from the current context as much as possible.
+        - If the visible text is noisy, do not overfit to weird OCR artifacts.
         - If the context is insufficient, say so naturally and give the best useful answer anyway.
         - Do not mention internal logs, JSON, events, prompts, screenshots, or architecture.
         - Do not pretend you can control the PC yet.

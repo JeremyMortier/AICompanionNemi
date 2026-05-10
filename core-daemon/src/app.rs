@@ -19,10 +19,11 @@ use crate::llm::LlmClient;
 use crate::mood::MoodState;
 use crate::ocr::extract_text_from_image;
 use crate::reaction::GeneratedReaction;
-use crate::server::{ChatRequest, SharedSnapshot, run_server};
+use crate::server::{ChatRequest, CommentNowRequest, SharedSnapshot, run_server};
 use crate::snapshot::{ActiveWindowSnapshot, AppSnapshot, InterpretationSnapshot, MoodSnapshot};
 use crate::state::{ActiveWindowState, AppState};
 use crate::tick::run_tick;
+use crate::visible_text::analyze_visible_text;
 use crate::vision::VisionInterpretation;
 
 pub async fn run() -> Result<()> {
@@ -38,11 +39,12 @@ pub async fn run() -> Result<()> {
 
     let shared_snapshot: SharedSnapshot = Arc::new(RwLock::new(build_snapshot(&state, &config)));
     let (chat_tx, mut chat_rx) = mpsc::channel::<ChatRequest>(16);
+    let (comment_now_tx, mut comment_now_rx) = mpsc::channel::<CommentNowRequest>(16);
 
     {
         let server_snapshot = Arc::clone(&shared_snapshot);
         tokio::spawn(async move {
-            if let Err(err) = run_server(server_snapshot, chat_tx).await {
+            if let Err(err) = run_server(server_snapshot, chat_tx, comment_now_tx).await {
                 error!(error = %err, "server task failed");
             }
         });
@@ -60,6 +62,17 @@ pub async fn run() -> Result<()> {
 
         while let Ok(chat_request) = chat_rx.try_recv() {
             handle_chat_request(chat_request, &mut state, &config, &llm, &shared_snapshot).await;
+        }
+
+        while let Ok(comment_request) = comment_now_rx.try_recv() {
+            handle_comment_now_request(
+                comment_request,
+                &mut state,
+                &config,
+                &llm,
+                &shared_snapshot,
+            )
+            .await;
         }
 
         event_bus.push(AppEvent::Tick);
@@ -350,7 +363,17 @@ async fn process_events(
                     "screen text extracted"
                 );
 
+                let visible_text_context = analyze_visible_text(&text);
+
+                info!(
+                    files = ?visible_text_context.detected_files,
+                    errors = ?visible_text_context.detected_errors,
+                    keywords = ?visible_text_context.detected_keywords,
+                    "visible text analyzed"
+                );
+
                 state.last_ocr_text = Some(text);
+                state.visible_text_context = Some(visible_text_context);
             }
         }
 
@@ -515,6 +538,7 @@ fn build_snapshot(state: &AppState, config: &AppConfig) -> AppSnapshot {
         last_chat_reply: state.last_chat_reply.clone(),
         chat_history_len: state.chat_history.len(),
         last_ocr_text: state.last_ocr_text.clone(),
+        visible_text_context: state.visible_text_context.clone(),
     }
 }
 
@@ -597,9 +621,38 @@ fn handle_vision_interpreted(
         state.last_ocr_text.as_deref(),
     );
 
-    if let Some(ocr_text) = state.last_ocr_text.as_deref() && !ocr_text.trim().is_empty() {
-        fused_context.summary.push_str("\nVisible text:\n");
-        fused_context.summary.push_str(&ocr_text.lines().take(20).collect::<Vec<_>>().join("\n"));
+    if let Some(visible) = state.visible_text_context.as_ref() {
+        fused_context
+            .summary
+            .push_str("\nVisible screen text analysis:");
+
+        if !visible.detected_files.is_empty() {
+            fused_context.summary.push_str("\nDetected files: ");
+            fused_context
+                .summary
+                .push_str(&visible.detected_files.join(", "));
+        }
+
+        if !visible.detected_errors.is_empty() {
+            fused_context
+                .summary
+                .push_str("\nDetected errors/warnings:\n");
+            fused_context
+                .summary
+                .push_str(&visible.detected_errors.join("\n"));
+        }
+
+        if !visible.detected_keywords.is_empty() {
+            fused_context.summary.push_str("\nDetected keywords: ");
+            fused_context
+                .summary
+                .push_str(&visible.detected_keywords.join(", "));
+        }
+
+        if !visible.raw_preview.is_empty() {
+            fused_context.summary.push_str("\nOCR preview:\n");
+            fused_context.summary.push_str(&visible.raw_preview);
+        }
     }
 
     event_bus.push(AppEvent::ContextFused {
@@ -663,6 +716,7 @@ async fn handle_chat_request(
         .generate_chat_reply(
             &user_message,
             state.last_fused_context.as_ref(),
+            state.visible_text_context.as_ref(),
             &config.persona,
             &state.mood,
         )
@@ -678,6 +732,58 @@ async fn handle_chat_request(
             });
 
             state.last_chat_reply = Some(text.clone());
+
+            let _ = request.reply_tx.send(Ok(text));
+        }
+        Err(err) => {
+            let _ = request.reply_tx.send(Err(err));
+        }
+    }
+
+    sync_snapshot(shared_snapshot, state, config).await;
+}
+
+async fn handle_comment_now_request(
+    request: CommentNowRequest,
+    state: &mut AppState,
+    config: &AppConfig,
+    llm: &LlmClient,
+    shared_snapshot: &SharedSnapshot,
+) {
+    let Some(context) = state.last_fused_context.as_ref() else {
+        let _ = request.reply_tx.send(Ok(
+            "Je n'ai pas encore assez de contexte visuel fiable pour commenter.".to_string(),
+        ));
+        return;
+    };
+
+    let interpretation = ContextInterpretation {
+        activity: context.activity.clone(),
+        confidence: context.confidence,
+        summary: context.summary.clone(),
+        should_comment: true,
+    };
+
+    let decision = ReactionDecision::CuriousComment {
+        reason: "manual comment requested by user".to_string(),
+    };
+
+    let result = llm
+        .generate_reaction(
+            &interpretation,
+            &decision,
+            &state.recent_reaction_memory.recent_texts(),
+            &config.persona,
+            &state.mood,
+        )
+        .await;
+
+    match result {
+        Ok(generated) => {
+            let text = generated.text.clone();
+
+            state.last_generated_reaction = Some(generated.clone());
+            state.recent_reaction_memory.push(generated);
 
             let _ = request.reply_tx.send(Ok(text));
         }

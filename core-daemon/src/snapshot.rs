@@ -1,3 +1,4 @@
+use crate::visible_text::VisibleTextContext;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -35,6 +36,7 @@ pub struct AppSnapshot {
     pub last_chat_reply: Option<String>,
     pub chat_history_len: usize,
     pub last_ocr_text: Option<String>,
+    pub visible_text_context: Option<VisibleTextContext>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
