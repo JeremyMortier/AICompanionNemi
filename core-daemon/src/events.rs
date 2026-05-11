@@ -68,6 +68,7 @@ pub enum AppEvent {
     ScreenTextExtracted {
         text: String,
     },
+    ForceScreenAnalysis,
 }
 
 #[derive(Debug)]

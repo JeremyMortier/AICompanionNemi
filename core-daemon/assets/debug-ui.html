@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="fr">
+    <head>
+        <meta charset="utf-8" />
+        <title>Nemi Debug UI</title>
+        <style>
+            body {
+                font-family: system-ui, sans-serif;
+                background: #111;
+                color: #eee;
+                margin: 0;
+                padding: 24px;
+            }
+
+            .grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 16px;
+            }
+
+            .card {
+                background: #1c1c1c;
+                border: 1px solid #333;
+                border-radius: 12px;
+                padding: 16px;
+            }
+
+            textarea, input, button {
+                width: 100%;
+                box-sizing: border-box;
+                border-radius: 8px;
+                border: 1px solid #444;
+                background: #222;
+                color: #eee;
+                padding: 10px;
+                font-size: 14px;
+            }
+
+            button {
+                cursor: pointer;
+                margin-top: 8px;
+                background: #333;
+            }
+
+            button:hover {
+                background: #444;
+            }
+
+            pre {
+                white-space: pre-wrap;
+                word-break: break-word;
+                background: #0b0b0b;
+                padding: 12px;
+                border-radius: 8px;
+                max-height: 500px;
+                overflow: auto;
+            }
+
+            .reaction {
+                font-size: 20px;
+                padding: 16px;
+                background: #22182c;
+                border-radius: 12px;
+                margin-top: 8px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Nemi Debug UI</h1>
+
+        <div class="grid">
+            <div class="card">
+                <h2>Chat</h2>
+                <textarea id="message" rows="4" placeholder="Parle à Nemi..."></textarea>
+                <button onclick="sendChat()">Envoyer</button>
+                <button onclick="commentNow()">Commenter maintenant</button>
+                <button onclick="refreshAnalysis()">Rafraîchir l’analyse</button>
+                <div class="reaction" id="reply">Aucune réponse pour l’instant.</div>
+            </div>
+
+            <div class="card">
+                <h2>État rapide</h2>
+                <div><strong>Fenêtre :</strong> <span id="window">-</span></div>
+                <div><strong>Activité :</strong> <span id="activity">-</span></div>
+                <div><strong>Humeur :</strong> <span id="mood">-</span></div>
+                <div><strong>Dernière réaction :</strong></div>
+                <div class="reaction" id="lastReaction">-</div>
+            </div>
+
+            <div class="card">
+                <h2>OCR / Texte visible</h2>
+                <pre id="visibleText">-</pre>
+            </div>
+
+            <div class="card">
+                <h2>State JSON</h2>
+                <pre id="state">Chargement...</pre>
+            </div>
+        </div>
+
+        <script>
+            async function refreshState() {
+                const res = await fetch('/state');
+                const state = await res.json();
+
+                document.getElementById('state').textContent = JSON.stringify(state, null, 2);
+                document.getElementById('window').textContent = state.active_window?.title ?? '-';
+                document.getElementById('activity').textContent = state.active_window?.activity ?? '-';
+                document.getElementById('mood').textContent = state.mood ? `${state.mood.current} (${state.mood.intensity})` : '-';
+                document.getElementById('lastReaction').textContent = state.last_generated_reaction ?? '-';
+                document.getElementById('visibleText').textContent = state.visible_text_context?.raw_preview ?? state.last_ocr_text ?? '-';
+            }
+
+            async function sendChat() {
+                const message = document.getElementById('message').value;
+
+                const res = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message })
+                });
+
+                const data = await res.json();
+
+                document.getElementById('reply').textContent = data.reply;
+
+                await refreshState();
+            }
+
+            async function commentNow() {
+                const res = await fetch('/comment-now', {
+                    method: 'POST'
+                });
+
+                const data = await res.json();
+                document.getElementById('reply').textContent = data.reply;
+                await refreshState();
+            }
+
+            async function refreshAnalysis() {
+                const res = await fetch('/refresh-analysis', {
+                    method: 'POST'
+                });
+
+                const data = await res.json();
+                document.getElementById('reply').textContent = data.reply;
+
+                setTimeout(refreshState, 1500);
+            }
+
+            refreshState();
+            setInterval(refreshState, 2000);
+        </script>
+    </body>
+</html>

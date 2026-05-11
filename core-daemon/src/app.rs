@@ -19,7 +19,9 @@ use crate::llm::LlmClient;
 use crate::mood::MoodState;
 use crate::ocr::extract_text_from_image;
 use crate::reaction::GeneratedReaction;
-use crate::server::{ChatRequest, CommentNowRequest, SharedSnapshot, run_server};
+use crate::server::{
+    ChatRequest, CommentNowRequest, RefreshAnalysisRequest, SharedSnapshot, run_server,
+};
 use crate::snapshot::{ActiveWindowSnapshot, AppSnapshot, InterpretationSnapshot, MoodSnapshot};
 use crate::state::{ActiveWindowState, AppState};
 use crate::tick::run_tick;
@@ -40,11 +42,20 @@ pub async fn run() -> Result<()> {
     let shared_snapshot: SharedSnapshot = Arc::new(RwLock::new(build_snapshot(&state, &config)));
     let (chat_tx, mut chat_rx) = mpsc::channel::<ChatRequest>(16);
     let (comment_now_tx, mut comment_now_rx) = mpsc::channel::<CommentNowRequest>(16);
+    let (refresh_analysis_tx, mut refresh_analysis_rx) =
+        mpsc::channel::<RefreshAnalysisRequest>(16);
 
     {
         let server_snapshot = Arc::clone(&shared_snapshot);
         tokio::spawn(async move {
-            if let Err(err) = run_server(server_snapshot, chat_tx, comment_now_tx).await {
+            if let Err(err) = run_server(
+                server_snapshot,
+                chat_tx,
+                comment_now_tx,
+                refresh_analysis_tx,
+            )
+            .await
+            {
                 error!(error = %err, "server task failed");
             }
         });
@@ -73,6 +84,10 @@ pub async fn run() -> Result<()> {
                 &shared_snapshot,
             )
             .await;
+        }
+
+        while let Ok(refresh_request) = refresh_analysis_rx.try_recv() {
+            handle_refresh_analysis_request(refresh_request, &mut event_bus).await;
         }
 
         event_bus.push(AppEvent::Tick);
@@ -374,6 +389,9 @@ async fn process_events(
 
                 state.last_ocr_text = Some(text);
                 state.visible_text_context = Some(visible_text_context);
+            }
+            AppEvent::ForceScreenAnalysis => {
+                run_tick(state, config, event_bus);
             }
         }
 
@@ -793,4 +811,15 @@ async fn handle_comment_now_request(
     }
 
     sync_snapshot(shared_snapshot, state, config).await;
+}
+
+async fn handle_refresh_analysis_request(
+    request: RefreshAnalysisRequest,
+    event_bus: &mut EventBus,
+) {
+    event_bus.push(AppEvent::ForceScreenAnalysis);
+
+    let _ = request
+        .reply_tx
+        .send(Ok("Analyse forcée déclenchée.".to_string()));
 }

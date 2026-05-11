@@ -17,6 +17,7 @@ pub struct ServerState {
     pub snapshot: SharedSnapshot,
     pub chat_tx: mpsc::Sender<ChatRequest>,
     pub comment_now_tx: mpsc::Sender<CommentNowRequest>,
+    pub refresh_analysis_tx: mpsc::Sender<RefreshAnalysisRequest>,
 }
 
 #[derive(Debug)]
@@ -40,22 +41,31 @@ pub struct CommentNowRequest {
     pub reply_tx: tokio::sync::oneshot::Sender<anyhow::Result<String>>,
 }
 
+#[derive(Debug)]
+pub struct RefreshAnalysisRequest {
+    pub reply_tx: tokio::sync::oneshot::Sender<anyhow::Result<String>>,
+}
+
 pub async fn run_server(
     shared_snapshot: SharedSnapshot,
     chat_tx: mpsc::Sender<ChatRequest>,
     comment_now_tx: mpsc::Sender<CommentNowRequest>,
+    refresh_analysis_tx: mpsc::Sender<RefreshAnalysisRequest>,
 ) -> anyhow::Result<()> {
     let state = ServerState {
         snapshot: shared_snapshot,
         chat_tx,
         comment_now_tx,
+        refresh_analysis_tx,
     };
 
     let app = Router::new()
+        .route("/", get(index))
         .route("/health", get(health))
         .route("/state", get(get_state))
         .route("/chat", post(chat))
         .route("/comment-now", post(comment_now))
+        .route("/refresh-analysis", post(refresh_analysis))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 7878));
@@ -64,6 +74,10 @@ pub async fn run_server(
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+async fn index() -> axum::response::Html<&'static str> {
+    axum::response::Html(include_str!("../assets/debug-ui.html"))
 }
 
 async fn health() -> &'static str {
@@ -115,6 +129,28 @@ async fn comment_now(State(state): State<ServerState>) -> Json<ChatResponseBody>
         Ok(Ok(reply)) => Json(ChatResponseBody { reply }),
         _ => Json(ChatResponseBody {
             reply: "Je n'ai pas réussi à commenter le contexte actuel.".to_string(),
+        }),
+    }
+}
+
+async fn refresh_analysis(State(state): State<ServerState>) -> Json<ChatResponseBody> {
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+    if state
+        .refresh_analysis_tx
+        .send(RefreshAnalysisRequest { reply_tx })
+        .await
+        .is_err()
+    {
+        return Json(ChatResponseBody {
+            reply: "Impossible de déclencher l'analyse pour l'instant.".to_string(),
+        });
+    }
+
+    match reply_rx.await {
+        Ok(Ok(reply)) => Json(ChatResponseBody { reply }),
+        _ => Json(ChatResponseBody {
+            reply: "L'analyse forcée a échoué.".to_string(),
         }),
     }
 }
