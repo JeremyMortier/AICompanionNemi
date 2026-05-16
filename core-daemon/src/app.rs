@@ -15,6 +15,7 @@ use crate::context::ContextInterpretation;
 use crate::context_fusion::fuse_context;
 use crate::decision::{ReactionDecision, decide_reaction};
 use crate::events::{AppEvent, EventBus};
+use crate::intent::classify_user_intent;
 use crate::llm::LlmClient;
 use crate::mood::MoodState;
 use crate::ocr::extract_text_from_image;
@@ -24,7 +25,7 @@ use crate::server::{
 };
 use crate::snapshot::{ActiveWindowSnapshot, AppSnapshot, InterpretationSnapshot, MoodSnapshot};
 use crate::state::{ActiveWindowState, AppState};
-use crate::tick::run_tick;
+use crate::tick::{capture_screens_now, run_tick};
 use crate::visible_text::analyze_visible_text;
 use crate::vision::VisionInterpretation;
 
@@ -391,7 +392,7 @@ async fn process_events(
                 state.visible_text_context = Some(visible_text_context);
             }
             AppEvent::ForceScreenAnalysis => {
-                run_tick(state, config, event_bus);
+                capture_screens_now(event_bus);
             }
         }
 
@@ -730,9 +731,57 @@ async fn handle_chat_request(
         content: user_message.clone(),
     });
 
+    let user_intent = classify_user_intent(&user_message);
+
+    info!(intent = ?user_intent, message = %user_message, "chat intent classified");
+
+    if matches!(user_intent, crate::intent::UserIntent::RequestPcAction) {
+        let result = llm
+            .generate_action_plan(
+                &user_message,
+                state.last_fused_context.as_ref(),
+                &config.persona,
+                &state.mood,
+            )
+            .await;
+
+        let text = match result {
+            Ok(plan) => {
+                let steps = plan
+                    .steps
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, step)| format!("{}. {}", idx + 1, step))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                format!(
+                    "{}\n\nJe ne peux pas encore l’exécuter moi-même, mais je te proposerais :\n{}",
+                    plan.summary, steps
+                )
+            }
+            Err(_) => {
+                "Je ne peux pas encore agir directement sur ton PC. Pour l’instant, je peux seulement observer, commenter et te proposer ce que je ferais.".to_string()
+            }
+        };
+
+        state.chat_history.push(ChatMessage {
+            role: ChatRole::Assistant,
+            content: text.clone(),
+        });
+
+        state.last_chat_reply = Some(text.clone());
+
+        let _ = request.reply_tx.send(Ok(text));
+
+        sync_snapshot(shared_snapshot, state, config).await;
+        return;
+    }
+
     let result = llm
         .generate_chat_reply(
             &user_message,
+            &user_intent,
             state.last_fused_context.as_ref(),
             state.visible_text_context.as_ref(),
             &config.persona,

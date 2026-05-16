@@ -214,6 +214,7 @@ impl LlmClient {
     pub async fn generate_chat_reply(
         &self,
         user_message: &str,
+        user_intent: &crate::intent::UserIntent,
         current_context: Option<&crate::context_fusion::FusedContext>,
         visible_text: Option<&crate::visible_text::VisibleTextContext>,
         persona: &crate::persona::PersonaProfile,
@@ -269,6 +270,8 @@ impl LlmClient {
             })
             .unwrap_or_else(|| "Visible text analysis: unavailable.\n".to_string());
 
+        let intent_block = format!("Detected user intent: {user_intent:?}");
+
         let prompt = format!(
             r#"You are {name}, a lively anime-style personal AI companion for a private desktop setup.
 
@@ -288,6 +291,7 @@ impl LlmClient {
         {context_block}
         {screen_context}
         {visible_text_block}
+        {intent_block}
 
         User message:
         "{user_message}"
@@ -303,6 +307,11 @@ impl LlmClient {
         - Do not pretend you can control the PC yet.
         - Be concise and natural.
         - One to three short sentences max.
+        - If intent is RequestPcAction, do not claim you performed the action.
+        - If intent is RequestPcAction, explain that you can observe and suggest for now, but not control the PC yet.
+        - If intent is ExplainScreen, focus on what is currently visible or inferred.
+        - If intent is AskNextStep, give one concrete next step based on the current context.
+        - If intent is CommentCurrentContext, answer like a short contextual companion reaction.
 
         Return only valid JSON:
         {{ "text": "..." }}"#,
@@ -316,6 +325,7 @@ impl LlmClient {
             speaking_style = persona.speaking_style,
             mood = mood.current,
             mood_intensity = mood.intensity,
+            intent_block = intent_block,
         );
 
         let request = OllamaGenerateRequest {
@@ -336,6 +346,95 @@ impl LlmClient {
 
         let parsed = serde_json::from_str::<crate::chat::ChatReply>(&response.response)
             .context("failed to parse structured JSON returned by model for chat reply")?;
+
+        Ok(parsed)
+    }
+
+    pub async fn generate_action_plan(
+        &self,
+        user_message: &str,
+        current_context: Option<&crate::context_fusion::FusedContext>,
+        persona: &crate::persona::PersonaProfile,
+        mood: &crate::mood::MoodState,
+    ) -> Result<crate::action_plan::ActionPlan> {
+        let context_block = current_context
+            .map(|ctx| {
+                format!(
+                    "Current context: activity={:?}, confidence={}, summary={}",
+                    ctx.activity, ctx.confidence, ctx.summary
+                )
+            })
+            .unwrap_or_else(|| "Current context: unavailable.".to_string());
+
+        let prompt = format!(
+            r#"You are {name}, a personal AI companion.
+
+    The user requested a PC action, but you are NOT allowed to execute actions yet.
+    Create a safe proposed action plan only.
+
+    Persona:
+    - energy: {energy}/100
+    - playfulness: {playfulness}/100
+    - curiosity: {curiosity}/100
+    - discretion: {discretion}/100
+
+    Mood:
+    - current: {mood:?}
+    - intensity: {mood_intensity}/100
+
+    {context_block}
+
+    User request:
+    "{user_message}"
+
+    Rules:
+    - Answer in the same language as the user.
+    - Do not claim that you performed the action.
+    - Do not give dangerous or destructive steps.
+    - Keep steps practical and short.
+    - If the action is simple, provide 2 to 4 steps.
+    - requires_confirmation must always be true for now.
+
+    Return only valid JSON:
+    {{
+    "user_request": "...",
+    "summary": "...",
+    "steps": ["...", "..."],
+    "requires_confirmation": true
+    }}"#,
+            name = persona.name,
+            energy = persona.energy,
+            playfulness = persona.playfulness,
+            curiosity = persona.curiosity,
+            discretion = persona.discretion,
+            mood = mood.current,
+            mood_intensity = mood.intensity,
+        );
+
+        let request = OllamaGenerateRequest {
+            model: self.model.clone(),
+            prompt,
+            stream: false,
+            images: None,
+            format: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "user_request": { "type": "string" },
+                    "summary": { "type": "string" },
+                    "steps": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "requires_confirmation": { "type": "boolean" }
+                },
+                "required": ["user_request", "summary", "steps", "requires_confirmation"]
+            }),
+        };
+
+        let response = self.send_generate_request(request).await?;
+
+        let parsed = serde_json::from_str::<crate::action_plan::ActionPlan>(&response.response)
+            .context("failed to parse structured JSON returned by model for action plan")?;
 
         Ok(parsed)
     }

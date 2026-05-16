@@ -1,3 +1,4 @@
+mod action_plan;
 mod activity;
 mod app;
 mod chat;
@@ -6,6 +7,7 @@ mod context;
 mod context_fusion;
 mod decision;
 mod events;
+mod intent;
 mod llm;
 mod memory;
 mod mood;
