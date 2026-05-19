@@ -1,3 +1,4 @@
+use crate::action_plan::ActionPlan;
 use crate::visible_text::VisibleTextContext;
 use serde::Serialize;
 
@@ -37,6 +38,8 @@ pub struct AppSnapshot {
     pub chat_history_len: usize,
     pub last_ocr_text: Option<String>,
     pub visible_text_context: Option<VisibleTextContext>,
+    pub last_action_plan: Option<ActionPlan>,
+    pub pending_action: Option<crate::actions::ExecutableAction>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]

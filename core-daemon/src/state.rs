@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use crate::action_plan::ActionPlan;
 use crate::activity::UserActivity;
 use crate::chat::ChatMessage;
 use crate::context::ContextInterpretation;
@@ -41,6 +42,8 @@ pub struct AppState {
     pub last_chat_reply: Option<String>,
     pub last_ocr_text: Option<String>,
     pub visible_text_context: Option<VisibleTextContext>,
+    pub last_action_plan: Option<ActionPlan>,
+    pub pending_action: Option<crate::actions::ExecutableAction>,
 }
 
 impl AppState {
@@ -60,6 +63,8 @@ impl AppState {
             last_chat_reply: None,
             last_ocr_text: None,
             visible_text_context: None,
+            last_action_plan: None,
+            pending_action: None,
         }
     }
 

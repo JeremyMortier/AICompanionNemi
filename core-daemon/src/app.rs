@@ -558,6 +558,8 @@ fn build_snapshot(state: &AppState, config: &AppConfig) -> AppSnapshot {
         chat_history_len: state.chat_history.len(),
         last_ocr_text: state.last_ocr_text.clone(),
         visible_text_context: state.visible_text_context.clone(),
+        last_action_plan: state.last_action_plan.clone(),
+        pending_action: state.pending_action.clone(),
     }
 }
 
@@ -747,6 +749,10 @@ async fn handle_chat_request(
 
         let text = match result {
             Ok(plan) => {
+                state.last_action_plan = Some(plan.clone());
+                state.pending_action =
+                    crate::actions::proposed_action_to_executable(&plan.proposed_action);
+
                 let steps = plan
                     .steps
                     .iter()
@@ -760,7 +766,9 @@ async fn handle_chat_request(
                     plan.summary, steps
                 )
             }
-            Err(_) => {
+            Err(err) => {
+                error!(error = %err, "failed to generate action plan");
+
                 "Je ne peux pas encore agir directement sur ton PC. Pour l’instant, je peux seulement observer, commenter et te proposer ce que je ferais.".to_string()
             }
         };

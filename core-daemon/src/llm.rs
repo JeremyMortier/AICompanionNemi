@@ -400,6 +400,10 @@ impl LlmClient {
     "user_request": "...",
     "summary": "...",
     "steps": ["...", "..."],
+    "proposed_action": {{
+        "kind": "OpenApplication",
+        "target": "Discord"
+    }},
     "requires_confirmation": true
     }}"#,
             name = persona.name,
@@ -425,9 +429,26 @@ impl LlmClient {
                         "type": "array",
                         "items": { "type": "string" }
                     },
+                    "proposed_action": {
+                        "type": "object",
+                        "properties": {
+                            "kind": {
+                                "type": "string",
+                                "enum": [
+                                    "OpenApplication",
+                                    "OpenUrl",
+                                    "SearchWeb",
+                                    "ExplainScreen",
+                                    "Unknown"
+                                ]
+                            },
+                            "target": { "type": "string" }
+                        },
+                        "required": ["kind", "target"]
+                    },
                     "requires_confirmation": { "type": "boolean" }
                 },
-                "required": ["user_request", "summary", "steps", "requires_confirmation"]
+                "required": ["user_request", "summary", "steps", "proposed_action", "requires_confirmation"]
             }),
         };
 
