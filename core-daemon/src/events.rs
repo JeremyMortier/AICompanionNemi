@@ -69,6 +69,8 @@ pub enum AppEvent {
         text: String,
     },
     ForceScreenAnalysis,
+    ContextAssessmentRequested,
+    ContextAssessed(crate::assessment::ContextAssessment),
 }
 
 #[derive(Debug)]

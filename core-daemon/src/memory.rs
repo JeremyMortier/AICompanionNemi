@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use serde::{Deserialize, Serialize};
+
 use crate::reaction::GeneratedReaction;
 
 const MAX_RECENT_REACTIONS: usize = 8;
@@ -52,4 +54,21 @@ fn normalize(input: &str) -> String {
 
 fn contains_with_min_length(a: &str, b: &str, min_len: usize) -> bool {
     a.len() >= min_len && b.len() >= min_len && a.contains(b)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEntry {
+    pub category: MemoryCategory,
+    pub summary: String,
+    pub importance: f32,
+    pub timestamp_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MemoryCategory {
+    Activity,
+    Assessment,
+    Reaction,
+    Error,
+    Goal,
 }

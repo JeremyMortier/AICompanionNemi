@@ -1,5 +1,7 @@
 use crate::action_plan::ActionPlan;
+use crate::assessment::ContextAssessment;
 use crate::visible_text::VisibleTextContext;
+
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -40,6 +42,7 @@ pub struct AppSnapshot {
     pub visible_text_context: Option<VisibleTextContext>,
     pub last_action_plan: Option<ActionPlan>,
     pub pending_action: Option<crate::actions::ExecutableAction>,
+    pub last_assessment: Option<ContextAssessment>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]

@@ -2,10 +2,12 @@ use std::time::Instant;
 
 use crate::action_plan::ActionPlan;
 use crate::activity::UserActivity;
+use crate::assessment::ContextAssessment;
 use crate::chat::ChatMessage;
 use crate::context::ContextInterpretation;
 use crate::context_fusion::FusedContext;
 use crate::decision::ReactionDecision;
+use crate::memory::MemoryEntry;
 use crate::memory::RecentReactionMemory;
 use crate::mood::MoodState;
 use crate::reaction::GeneratedReaction;
@@ -44,6 +46,8 @@ pub struct AppState {
     pub visible_text_context: Option<VisibleTextContext>,
     pub last_action_plan: Option<ActionPlan>,
     pub pending_action: Option<crate::actions::ExecutableAction>,
+    pub last_assessment: Option<ContextAssessment>,
+    pub short_term_memory: Vec<MemoryEntry>,
 }
 
 impl AppState {
@@ -65,10 +69,22 @@ impl AppState {
             visible_text_context: None,
             last_action_plan: None,
             pending_action: None,
+            last_assessment: None,
+            short_term_memory: Vec::new(),
         }
     }
 
     pub fn increment_tick(&mut self) {
         self.tick_count += 1;
+    }
+}
+
+impl AppState {
+    pub fn push_memory(&mut self, entry: MemoryEntry) {
+        self.short_term_memory.push(entry);
+
+        if self.short_term_memory.len() > 50 {
+            self.short_term_memory.remove(0);
+        }
     }
 }

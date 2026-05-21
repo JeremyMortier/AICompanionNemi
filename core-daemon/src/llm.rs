@@ -214,13 +214,10 @@ impl LlmClient {
     pub async fn generate_chat_reply(
         &self,
         user_message: &str,
-        user_intent: &crate::intent::UserIntent,
-        current_context: Option<&crate::context_fusion::FusedContext>,
-        visible_text: Option<&crate::visible_text::VisibleTextContext>,
-        persona: &crate::persona::PersonaProfile,
-        mood: &crate::mood::MoodState,
+        context: &crate::chat_context::ChatGenerationContext<'_>,
     ) -> Result<crate::chat::ChatReply> {
-        let context_block = current_context
+        let context_block = context
+            .fused_context
             .map(|ctx| {
                 format!(
                     r#"Current observed screen context:
@@ -239,7 +236,8 @@ impl LlmClient {
                 "Current observed screen context: unavailable or unreliable.".to_string()
             });
 
-        let screen_context = current_context
+        let screen_context = context
+            .fused_context
             .map(|ctx| {
                 format!(
                     r#"Observed screen context:
@@ -252,7 +250,8 @@ impl LlmClient {
             })
             .unwrap_or_else(|| "Observed screen context: unavailable.\n".to_string());
 
-        let visible_text_block = visible_text
+        let visible_text_block = context
+            .visible_text
             .map(|visible| {
                 format!(
                     r#"Visible text analysis:
@@ -270,7 +269,48 @@ impl LlmClient {
             })
             .unwrap_or_else(|| "Visible text analysis: unavailable.\n".to_string());
 
-        let intent_block = format!("Detected user intent: {user_intent:?}");
+        let intent_block: String = format!("Detected user intent: {:?}", context.user_intent);
+
+        let assessment_block = context
+            .assessment
+            .map(|a| {
+                format!(
+                    r#"Context assessment:
+        - situation: {}
+        - likely user goal: {}
+        - visible clues: {:?}
+        - uncertainties: {:?}
+        - recommended next step: {:?}
+        - confidence: {}"#,
+                    a.situation,
+                    a.likely_user_goal,
+                    a.visible_clues,
+                    a.uncertainties,
+                    a.recommended_next_step,
+                    a.confidence
+                )
+            })
+            .unwrap_or_else(|| "Context assessment: unavailable.".to_string());
+
+        let memory_block = if context.short_term_memory.is_empty() {
+            "Short-term memory: empty.".to_string()
+        } else {
+            let entries = context
+                .short_term_memory
+                .iter()
+                .rev()
+                .take(8)
+                .map(|m| {
+                    format!(
+                        "- {:?}: {} (importance={})",
+                        m.category, m.summary, m.importance
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            format!("Short-term memory:\n{entries}")
+        };
 
         let prompt = format!(
             r#"You are {name}, a lively anime-style personal AI companion for a private desktop setup.
@@ -292,6 +332,8 @@ impl LlmClient {
         {screen_context}
         {visible_text_block}
         {intent_block}
+        {assessment_block}
+        {memory_block}
 
         User message:
         "{user_message}"
@@ -315,17 +357,18 @@ impl LlmClient {
 
         Return only valid JSON:
         {{ "text": "..." }}"#,
-            name = persona.name,
-            energy = persona.energy,
-            playfulness = persona.playfulness,
-            curiosity = persona.curiosity,
-            affection = persona.affection,
-            boldness = persona.boldness,
-            discretion = persona.discretion,
-            speaking_style = persona.speaking_style,
-            mood = mood.current,
-            mood_intensity = mood.intensity,
+            name = context.persona.name,
+            energy = context.persona.energy,
+            playfulness = context.persona.playfulness,
+            curiosity = context.persona.curiosity,
+            affection = context.persona.affection,
+            boldness = context.persona.boldness,
+            discretion = context.persona.discretion,
+            speaking_style = context.persona.speaking_style,
+            mood = context.mood.current,
+            mood_intensity = context.mood.intensity,
             intent_block = intent_block,
+            memory_block = memory_block,
         );
 
         let request = OllamaGenerateRequest {
@@ -456,6 +499,110 @@ impl LlmClient {
 
         let parsed = serde_json::from_str::<crate::action_plan::ActionPlan>(&response.response)
             .context("failed to parse structured JSON returned by model for action plan")?;
+
+        Ok(parsed)
+    }
+
+    pub async fn assess_context(
+        &self,
+        fused_context: &crate::context_fusion::FusedContext,
+        visible_text: Option<&crate::visible_text::VisibleTextContext>,
+    ) -> Result<crate::assessment::ContextAssessment> {
+        let visible_text_block = visible_text
+            .map(|visible| {
+                format!(
+                    r#"Visible text analysis:
+    - detected files: {:?}
+    - detected errors/warnings: {:?}
+    - detected keywords: {:?}
+    - OCR preview:
+    {}"#,
+                    visible.detected_files,
+                    visible.detected_errors,
+                    visible.detected_keywords,
+                    visible.raw_preview
+                )
+            })
+            .unwrap_or_else(|| "Visible text analysis: unavailable.".to_string());
+
+        let prompt = format!(
+            r#"You are a context assessment module for a desktop AI companion.
+
+    Your job:
+    - analyze the current screen context
+    - infer what the user is likely doing
+    - identify useful visible clues
+    - identify uncertainties
+    - suggest one concrete next step if appropriate
+
+    Do not invent details.
+    If OCR or vision is noisy, mention uncertainty.
+
+    Fused context:
+    - activity: {:?}
+    - confidence: {}
+    - summary: {}
+
+    {}
+
+    Return only valid JSON:
+    {{
+    "situation": "...",
+    "likely_user_goal": "...",
+    "visible_clues": ["...", "..."],
+    "uncertainties": ["...", "..."],
+    "recommended_next_step": "...",
+    "confidence": 0.0
+    }}"#,
+            fused_context.activity,
+            fused_context.confidence,
+            fused_context.summary,
+            visible_text_block
+        );
+
+        let request = OllamaGenerateRequest {
+            model: self.model.clone(),
+            prompt,
+            stream: false,
+            images: None,
+            format: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "situation": { "type": "string" },
+                    "likely_user_goal": { "type": "string" },
+                    "visible_clues": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "uncertainties": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "recommended_next_step": {
+                        "type": ["string", "null"]
+                    },
+                    "confidence": { "type": "number" }
+                },
+                "required": [
+                    "situation",
+                    "likely_user_goal",
+                    "visible_clues",
+                    "uncertainties",
+                    "recommended_next_step",
+                    "confidence"
+                ]
+            }),
+        };
+
+        let response = self.send_generate_request(request).await?;
+
+        let mut parsed =
+            serde_json::from_str::<crate::assessment::ContextAssessment>(&response.response)
+                .context(
+                    "failed to parse structured JSON returned by model for context assessment",
+                )?;
+
+        parsed.confidence = parsed.confidence.clamp(0.0, 1.0);
 
         Ok(parsed)
     }

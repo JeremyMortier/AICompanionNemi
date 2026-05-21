@@ -394,6 +394,44 @@ async fn process_events(
             AppEvent::ForceScreenAnalysis => {
                 capture_screens_now(event_bus);
             }
+            AppEvent::ContextAssessmentRequested => {
+                if let Some(fused_context) = state.last_fused_context.as_ref() {
+                    match llm
+                        .assess_context(fused_context, state.visible_text_context.as_ref())
+                        .await
+                    {
+                        Ok(assessment) => {
+                            event_bus.push(AppEvent::ContextAssessed(assessment));
+                        }
+                        Err(err) => {
+                            error!(error = %err, "failed to assess context");
+                        }
+                    }
+                }
+            }
+            AppEvent::ContextAssessed(assessment) => {
+                info!(
+                    situation = %assessment.situation,
+                    goal = %assessment.likely_user_goal,
+                    confidence = assessment.confidence,
+                    "context assessed"
+                );
+
+                state.push_memory(crate::memory::MemoryEntry {
+                    category: crate::memory::MemoryCategory::Assessment,
+
+                    summary: format!(
+                        "Situation: {} | Goal: {}",
+                        assessment.situation, assessment.likely_user_goal
+                    ),
+
+                    importance: assessment.confidence,
+
+                    timestamp_ms: current_timestamp_ms(),
+                });
+
+                state.last_assessment = Some(assessment);
+            }
         }
 
         sync_snapshot(shared_snapshot, state, config).await;
@@ -560,6 +598,7 @@ fn build_snapshot(state: &AppState, config: &AppConfig) -> AppSnapshot {
         visible_text_context: state.visible_text_context.clone(),
         last_action_plan: state.last_action_plan.clone(),
         pending_action: state.pending_action.clone(),
+        last_assessment: state.last_assessment.clone(),
     }
 }
 
@@ -698,6 +737,7 @@ fn handle_fused_context(
     );
 
     state.last_fused_context = Some(fused_context.clone());
+    event_bus.push(AppEvent::ContextAssessmentRequested);
 
     let interpretation = ContextInterpretation {
         activity: fused_context.activity,
@@ -786,16 +826,23 @@ async fn handle_chat_request(
         return;
     }
 
-    let result = llm
-        .generate_chat_reply(
-            &user_message,
-            &user_intent,
-            state.last_fused_context.as_ref(),
-            state.visible_text_context.as_ref(),
-            &config.persona,
-            &state.mood,
-        )
-        .await;
+    let chat_context = crate::chat_context::ChatGenerationContext {
+        user_intent: &user_intent,
+
+        fused_context: state.last_fused_context.as_ref(),
+
+        visible_text: state.visible_text_context.as_ref(),
+
+        assessment: state.last_assessment.as_ref(),
+
+        persona: &config.persona,
+
+        mood: &state.mood,
+
+        short_term_memory: &state.short_term_memory,
+    };
+
+    let result = llm.generate_chat_reply(&user_message, &chat_context).await;
 
     match result {
         Ok(reply) => {
@@ -879,4 +926,11 @@ async fn handle_refresh_analysis_request(
     let _ = request
         .reply_tx
         .send(Ok("Analyse forcée déclenchée.".to_string()));
+}
+
+fn current_timestamp_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
 }
