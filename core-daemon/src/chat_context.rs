@@ -18,4 +18,6 @@ pub struct ChatGenerationContext<'a> {
     pub mood: &'a MoodState,
 
     pub short_term_memory: &'a [MemoryEntry],
+
+    pub short_term_memory_summary: Option<&'a String>,
 }

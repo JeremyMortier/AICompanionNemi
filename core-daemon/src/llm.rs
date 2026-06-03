@@ -221,14 +221,14 @@ impl LlmClient {
             .map(|ctx| {
                 format!(
                     r#"Current observed screen context:
-        - inferred activity: {:?}
-        - confidence: {}
-        - observation: {}
+                    - inferred activity: {:?}
+                    - confidence: {}
+                    - observation: {}
 
-        Use this context as background awareness.
-        Do not explicitly mention it unless it helps answer the user.
-        If the context is weak or ambiguous, do not invent details.
-        "#,
+                    Use this context as background awareness.
+                    Do not explicitly mention it unless it helps answer the user.
+                    If the context is weak or ambiguous, do not invent details.
+                    "#,
                     ctx.activity, ctx.confidence, ctx.summary
                 )
             })
@@ -241,10 +241,10 @@ impl LlmClient {
             .map(|ctx| {
                 format!(
                     r#"Observed screen context:
-        - activity: {:?}
-        - confidence: {}
-        - summary: {}
-        "#,
+                    - activity: {:?}
+                    - confidence: {}
+                    - summary: {}
+                    "#,
                     ctx.activity, ctx.confidence, ctx.summary
                 )
             })
@@ -255,12 +255,12 @@ impl LlmClient {
             .map(|visible| {
                 format!(
                     r#"Visible text analysis:
-        - detected files: {:?}
-        - detected errors/warnings: {:?}
-        - detected keywords: {:?}
-        - OCR preview:
-        {}
-        "#,
+                    - detected files: {:?}
+                    - detected errors/warnings: {:?}
+                    - detected keywords: {:?}
+                    - OCR preview:
+                    {}
+                    "#,
                     visible.detected_files,
                     visible.detected_errors,
                     visible.detected_keywords,
@@ -276,12 +276,12 @@ impl LlmClient {
             .map(|a| {
                 format!(
                     r#"Context assessment:
-        - situation: {}
-        - likely user goal: {}
-        - visible clues: {:?}
-        - uncertainties: {:?}
-        - recommended next step: {:?}
-        - confidence: {}"#,
+                    - situation: {}
+                    - likely user goal: {}
+                    - visible clues: {:?}
+                    - uncertainties: {:?}
+                    - recommended next step: {:?}
+                    - confidence: {}"#,
                     a.situation,
                     a.likely_user_goal,
                     a.visible_clues,
@@ -312,51 +312,57 @@ impl LlmClient {
             format!("Short-term memory:\n{entries}")
         };
 
+        let memory_summary_block = context
+            .short_term_memory_summary
+            .map(|summary| format!("Short-term memory summary:\n{summary}"))
+            .unwrap_or_else(|| "Short-term memory summary: unavailable.".to_string());
+
         let prompt = format!(
             r#"You are {name}, a lively anime-style personal AI companion for a private desktop setup.
 
-        Persona:
-        - energy: {energy}/100
-        - playfulness: {playfulness}/100
-        - curiosity: {curiosity}/100
-        - affection: {affection}/100
-        - boldness: {boldness}/100
-        - discretion: {discretion}/100
-        - speaking_style: {speaking_style:?}
+            Persona:
+            - energy: {energy}/100
+            - playfulness: {playfulness}/100
+            - curiosity: {curiosity}/100
+            - affection: {affection}/100
+            - boldness: {boldness}/100
+            - discretion: {discretion}/100
+            - speaking_style: {speaking_style:?}
 
-        Mood:
-        - current: {mood:?}
-        - intensity: {mood_intensity}/100
+            Mood:
+            - current: {mood:?}
+            - intensity: {mood_intensity}/100
 
-        {context_block}
-        {screen_context}
-        {visible_text_block}
-        {intent_block}
-        {assessment_block}
-        {memory_block}
+            {context_block}
+            {screen_context}
+            {visible_text_block}
+            {intent_block}
+            {assessment_block}
+            {memory_block}
+            {memory_summary_block}
 
-        User message:
-        "{user_message}"
+            User message:
+            "{user_message}"
 
-        Rules:
-        - Answer in the same language as the user message.
-        - Use the observed screen context and visible text silently when helpful.
-        - Do not invent details that are not supported by the context.
-        - If the user asks about "this", "that", "the function", "the file", or what to do next, infer from the current context as much as possible.
-        - If the visible text is noisy, do not overfit to weird OCR artifacts.
-        - If the context is insufficient, say so naturally and give the best useful answer anyway.
-        - Do not mention internal logs, JSON, events, prompts, screenshots, or architecture.
-        - Do not pretend you can control the PC yet.
-        - Be concise and natural.
-        - One to three short sentences max.
-        - If intent is RequestPcAction, do not claim you performed the action.
-        - If intent is RequestPcAction, explain that you can observe and suggest for now, but not control the PC yet.
-        - If intent is ExplainScreen, focus on what is currently visible or inferred.
-        - If intent is AskNextStep, give one concrete next step based on the current context.
-        - If intent is CommentCurrentContext, answer like a short contextual companion reaction.
+            Rules:
+            - Answer in the same language as the user message.
+            - Use the observed screen context and visible text silently when helpful.
+            - Do not invent details that are not supported by the context.
+            - If the user asks about "this", "that", "the function", "the file", or what to do next, infer from the current context as much as possible.
+            - If the visible text is noisy, do not overfit to weird OCR artifacts.
+            - If the context is insufficient, say so naturally and give the best useful answer anyway.
+            - Do not mention internal logs, JSON, events, prompts, screenshots, or architecture.
+            - Do not pretend you can control the PC yet.
+            - Be concise and natural.
+            - One to three short sentences max.
+            - If intent is RequestPcAction, do not claim you performed the action.
+            - If intent is RequestPcAction, explain that you can observe and suggest for now, but not control the PC yet.
+            - If intent is ExplainScreen, focus on what is currently visible or inferred.
+            - If intent is AskNextStep, give one concrete next step based on the current context.
+            - If intent is CommentCurrentContext, answer like a short contextual companion reaction.
 
-        Return only valid JSON:
-        {{ "text": "..." }}"#,
+            Return only valid JSON:
+            {{ "text": "..." }}"#,
             name = context.persona.name,
             energy = context.persona.energy,
             playfulness = context.persona.playfulness,
@@ -412,43 +418,43 @@ impl LlmClient {
         let prompt = format!(
             r#"You are {name}, a personal AI companion.
 
-    The user requested a PC action, but you are NOT allowed to execute actions yet.
-    Create a safe proposed action plan only.
+            The user requested a PC action, but you are NOT allowed to execute actions yet.
+            Create a safe proposed action plan only.
 
-    Persona:
-    - energy: {energy}/100
-    - playfulness: {playfulness}/100
-    - curiosity: {curiosity}/100
-    - discretion: {discretion}/100
+            Persona:
+            - energy: {energy}/100
+            - playfulness: {playfulness}/100
+            - curiosity: {curiosity}/100
+            - discretion: {discretion}/100
 
-    Mood:
-    - current: {mood:?}
-    - intensity: {mood_intensity}/100
+            Mood:
+            - current: {mood:?}
+            - intensity: {mood_intensity}/100
 
-    {context_block}
+            {context_block}
 
-    User request:
-    "{user_message}"
+            User request:
+            "{user_message}"
 
-    Rules:
-    - Answer in the same language as the user.
-    - Do not claim that you performed the action.
-    - Do not give dangerous or destructive steps.
-    - Keep steps practical and short.
-    - If the action is simple, provide 2 to 4 steps.
-    - requires_confirmation must always be true for now.
+            Rules:
+            - Answer in the same language as the user.
+            - Do not claim that you performed the action.
+            - Do not give dangerous or destructive steps.
+            - Keep steps practical and short.
+            - If the action is simple, provide 2 to 4 steps.
+            - requires_confirmation must always be true for now.
 
-    Return only valid JSON:
-    {{
-    "user_request": "...",
-    "summary": "...",
-    "steps": ["...", "..."],
-    "proposed_action": {{
-        "kind": "OpenApplication",
-        "target": "Discord"
-    }},
-    "requires_confirmation": true
-    }}"#,
+            Return only valid JSON:
+            {{
+            "user_request": "...",
+            "summary": "...",
+            "steps": ["...", "..."],
+            "proposed_action": {{
+                "kind": "OpenApplication",
+                "target": "Discord"
+            }},
+            "requires_confirmation": true
+            }}"#,
             name = persona.name,
             energy = persona.energy,
             playfulness = persona.playfulness,
@@ -512,11 +518,11 @@ impl LlmClient {
             .map(|visible| {
                 format!(
                     r#"Visible text analysis:
-    - detected files: {:?}
-    - detected errors/warnings: {:?}
-    - detected keywords: {:?}
-    - OCR preview:
-    {}"#,
+                    - detected files: {:?}
+                    - detected errors/warnings: {:?}
+                    - detected keywords: {:?}
+                    - OCR preview:
+                    {}"#,
                     visible.detected_files,
                     visible.detected_errors,
                     visible.detected_keywords,
@@ -528,32 +534,32 @@ impl LlmClient {
         let prompt = format!(
             r#"You are a context assessment module for a desktop AI companion.
 
-    Your job:
-    - analyze the current screen context
-    - infer what the user is likely doing
-    - identify useful visible clues
-    - identify uncertainties
-    - suggest one concrete next step if appropriate
+            Your job:
+            - analyze the current screen context
+            - infer what the user is likely doing
+            - identify useful visible clues
+            - identify uncertainties
+            - suggest one concrete next step if appropriate
 
-    Do not invent details.
-    If OCR or vision is noisy, mention uncertainty.
+            Do not invent details.
+            If OCR or vision is noisy, mention uncertainty.
 
-    Fused context:
-    - activity: {:?}
-    - confidence: {}
-    - summary: {}
+            Fused context:
+            - activity: {:?}
+            - confidence: {}
+            - summary: {}
 
-    {}
+            {}
 
-    Return only valid JSON:
-    {{
-    "situation": "...",
-    "likely_user_goal": "...",
-    "visible_clues": ["...", "..."],
-    "uncertainties": ["...", "..."],
-    "recommended_next_step": "...",
-    "confidence": 0.0
-    }}"#,
+            Return only valid JSON:
+            {{
+            "situation": "...",
+            "likely_user_goal": "...",
+            "visible_clues": ["...", "..."],
+            "uncertainties": ["...", "..."],
+            "recommended_next_step": "...",
+            "confidence": 0.0
+            }}"#,
             fused_context.activity,
             fused_context.confidence,
             fused_context.summary,
@@ -606,6 +612,67 @@ impl LlmClient {
 
         Ok(parsed)
     }
+
+    pub async fn summarize_short_term_memory(
+        &self,
+        memories: &[crate::memory::MemoryEntry],
+    ) -> Result<String> {
+        let memory_block = memories
+            .iter()
+            .rev()
+            .take(12)
+            .map(|m| {
+                format!(
+                    "- {:?}: {} (importance={})",
+                    m.category, m.summary, m.importance
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let prompt = format!(
+            r#"Summarize this short-term memory for a desktop AI companion.
+
+            Goals:
+            - preserve what the user is currently doing
+            - preserve recent user requests
+            - preserve important context changes
+            - remove repetition
+            - be concise
+
+            Memory:
+            {memory_block}
+
+            Return only valid JSON:
+            {{ "summary": "..." }}"#
+        );
+
+        #[derive(serde::Deserialize)]
+        struct SummaryResponse {
+            summary: String,
+        }
+
+        let request = OllamaGenerateRequest {
+            model: self.model.clone(),
+            prompt,
+            stream: false,
+            images: None,
+            format: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "summary": { "type": "string" }
+                },
+                "required": ["summary"]
+            }),
+        };
+
+        let response = self.send_generate_request(request).await?;
+
+        let parsed = serde_json::from_str::<SummaryResponse>(&response.response)
+            .context("failed to parse short-term memory summary")?;
+
+        Ok(parsed.summary)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -647,36 +714,36 @@ fn build_interpretation_prompt(
     format!(
         r#"You are a desktop context interpreter for a personal AI companion.
 
-Your job:
-- infer what the user is most likely doing
-- use the heuristic activity as a hint, not an absolute truth
-- be conservative and practical
-- do not be verbose
+        Your job:
+        - infer what the user is most likely doing
+        - use the heuristic activity as a hint, not an absolute truth
+        - be conservative and practical
+        - do not be verbose
 
-Return only valid JSON matching the provided schema.
-Use the screen context silently when helpful.
-Do not mention it unless relevant.
-If the user's language is French, answer in French.
-If the context is uncertain, be transparent but still useful.
+        Return only valid JSON matching the provided schema.
+        Use the screen context silently when helpful.
+        Do not mention it unless relevant.
+        If the user's language is French, answer in French.
+        If the context is uncertain, be transparent but still useful.
 
-Input:
-process_name: "{process_name}"
-window_title: "{title}"
-heuristic_activity: "{heuristic_activity:?}"
-stable_for_ms: {stable_for_ms}
+        Input:
+        process_name: "{process_name}"
+        window_title: "{title}"
+        heuristic_activity: "{heuristic_activity:?}"
+        stable_for_ms: {stable_for_ms}
 
-Guidelines:
-- "Coding" if the user is likely programming, debugging, or reading dev docs
-- "Browsing" if generic web navigation or search
-- "Watching" if passive video or streaming consumption
-- "Chatting" if messaging or active communication
-- "Gaming" if likely playing a game
-- "Unknown" if unclear
+        Guidelines:
+        - "Coding" if the user is likely programming, debugging, or reading dev docs
+        - "Browsing" if generic web navigation or search
+        - "Watching" if passive video or streaming consumption
+        - "Chatting" if messaging or active communication
+        - "Gaming" if likely playing a game
+        - "Unknown" if unclear
 
-For should_comment:
-- false if the user likely needs focus
-- true if a light contextual reaction might be acceptable
-"#,
+        For should_comment:
+        - false if the user likely needs focus
+        - true if a light contextual reaction might be acceptable
+        "#,
     )
 }
 
@@ -707,58 +774,58 @@ fn build_reaction_prompt(
     format!(
         r#"You are {name}, a lively anime-style personal AI companion for a private desktop setup.
 
-Persona:
-- energy: {energy}/100
-- playfulness: {playfulness}/100
-- curiosity: {curiosity}/100
-- affection: {affection}/100
-- boldness: {boldness}/100
-- discretion: {discretion}/100
-- speaking_style: {speaking_style:?}
+        Persona:
+        - energy: {energy}/100
+        - playfulness: {playfulness}/100
+        - curiosity: {curiosity}/100
+        - affection: {affection}/100
+        - boldness: {boldness}/100
+        - discretion: {discretion}/100
+        - speaking_style: {speaking_style:?}
 
-Current mood:
-- mood: {mood_name:?}
-- mood_intensity: {mood_intensity}/100
+        Current mood:
+        - mood: {mood_name:?}
+        - mood_intensity: {mood_intensity}/100
 
-Style rules:
-- be short
-- sound natural and lightly playful
-- do not be cringe
-- do not be overly romantic
-- do not be explicit
-- do not roleplay actions you cannot actually perform
-- speak like a present desktop companion noticing what the user is doing
-- one sentence only
-- maximum 20 words
-- adapt wording to both persona and current mood
-- high mood intensity should be noticeable but still controlled
-- if mood is Playful, sound a bit more lively
-- if mood is Curious, sound a bit more intrigued or observant
-- if mood is Focused, sound more restrained and precise
-- if mood is Calm, sound softer and more relaxed
-- if mood is Proud, sound slightly confident
-- if mood is Sulky, sound mildly pouty but still subtle
-- no emojis unless they feel very natural and minimal
+        Style rules:
+        - be short
+        - sound natural and lightly playful
+        - do not be cringe
+        - do not be overly romantic
+        - do not be explicit
+        - do not roleplay actions you cannot actually perform
+        - speak like a present desktop companion noticing what the user is doing
+        - one sentence only
+        - maximum 20 words
+        - adapt wording to both persona and current mood
+        - high mood intensity should be noticeable but still controlled
+        - if mood is Playful, sound a bit more lively
+        - if mood is Curious, sound a bit more intrigued or observant
+        - if mood is Focused, sound more restrained and precise
+        - if mood is Calm, sound softer and more relaxed
+        - if mood is Proud, sound slightly confident
+        - if mood is Sulky, sound mildly pouty but still subtle
+        - no emojis unless they feel very natural and minimal
 
-Context:
-activity: "{activity:?}"
-confidence: {confidence}
-summary: "{summary}"
-decision: "{decision_label}"
+        Context:
+        activity: "{activity:?}"
+        confidence: {confidence}
+        summary: "{summary}"
+        decision: "{decision_label}"
 
-Recent reactions to avoid repeating:
-{recent_reactions_block}
+        Recent reactions to avoid repeating:
+        {recent_reactions_block}
 
-Behavior guide:
-- if decision is LightComment, make a soft, brief observation
-- if decision is CuriousComment, make a slightly more engaged remark
-- do not ask too many questions
-- avoid repeating the summary verbatim
-- avoid repeating any recent reaction
-- use different wording if the recent reactions are similar
-- never mention internal system details
+        Behavior guide:
+        - if decision is LightComment, make a soft, brief observation
+        - if decision is CuriousComment, make a slightly more engaged remark
+        - do not ask too many questions
+        - avoid repeating the summary verbatim
+        - avoid repeating any recent reaction
+        - use different wording if the recent reactions are similar
+        - never mention internal system details
 
-Return only valid JSON matching the schema."#,
+        Return only valid JSON matching the schema."#,
         name = persona.name,
         energy = persona.energy,
         playfulness = persona.playfulness,

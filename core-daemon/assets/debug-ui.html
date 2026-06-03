@@ -98,13 +98,18 @@
             </div>
 
             <div class="card">
-                <h2>Dernier plan d’action</h2>
+                <h2>Dernier plan d'action</h2>
                 <pre id="actionPlan">-</pre>
             </div>
 
             <div class="card">
                 <h2>Pending Action</h2>
                 <pre id="pendingAction">-</pre>
+            </div>
+        
+            <div class="card">
+                <h2>Mémoire court terme</h2>
+                <pre id="shortTermMemory">-</pre>
             </div>
         </div>
 
@@ -121,6 +126,7 @@
                 document.getElementById('visibleText').textContent = state.visible_text_context?.raw_preview ?? state.last_ocr_text ?? '-';
                 document.getElementById('actionPlan').textContent = state.last_action_plan ? JSON.stringify(state.last_action_plan, null, 2) : '-';
                 document.getElementById('pendingAction').textContent = state.pending_action ? JSON.stringify(state.pending_action, null, 2) : '-';
+                document.getElementById('shortTermMemory').textContent = state.short_term_memory ? JSON.stringify(state.short_term_memory.slice(-8), null, 2) : '-';
             }
 
             async function sendChat() {

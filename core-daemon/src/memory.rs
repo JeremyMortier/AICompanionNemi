@@ -64,7 +64,7 @@ pub struct MemoryEntry {
     pub timestamp_ms: u128,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum MemoryCategory {
     Activity,
     Assessment,

@@ -287,7 +287,7 @@ async fn process_events(
                 }
             }
             AppEvent::ReactionGenerated(generated) => {
-                handle_generated_reaction(state, generated);
+                handle_generated_reaction(state, llm, generated).await;
             }
             AppEvent::ScreensCaptured { captures } => {
                 info!(count = captures.len(), "screens captured");
@@ -431,6 +431,7 @@ async fn process_events(
                 });
 
                 state.last_assessment = Some(assessment);
+                maybe_refresh_memory_summary(state, llm).await;
             }
         }
 
@@ -512,7 +513,11 @@ fn handle_reaction_decision(
     state.last_decision = Some(decision);
 }
 
-fn handle_generated_reaction(state: &mut AppState, generated: GeneratedReaction) {
+async fn handle_generated_reaction(
+    state: &mut AppState,
+    llm: &LlmClient,
+    generated: GeneratedReaction,
+) {
     if state.recent_reaction_memory.is_too_similar(&generated.text) {
         warn!(
             reaction = %generated.text,
@@ -523,8 +528,19 @@ fn handle_generated_reaction(state: &mut AppState, generated: GeneratedReaction)
 
     info!(reaction = %generated.text, "generated reaction");
 
+    let reaction_text = generated.text.clone();
+
     state.last_generated_reaction = Some(generated.clone());
     state.recent_reaction_memory.push(generated);
+
+    state.push_memory(crate::memory::MemoryEntry {
+        category: crate::memory::MemoryCategory::Reaction,
+        summary: format!("Nemi reacted: {}", reaction_text),
+        importance: 0.55,
+        timestamp_ms: current_timestamp_ms(),
+    });
+
+    maybe_refresh_memory_summary(state, llm).await;
 }
 
 fn should_request_interpretation(
@@ -599,6 +615,8 @@ fn build_snapshot(state: &AppState, config: &AppConfig) -> AppSnapshot {
         last_action_plan: state.last_action_plan.clone(),
         pending_action: state.pending_action.clone(),
         last_assessment: state.last_assessment.clone(),
+        short_term_memory: state.short_term_memory.clone(),
+        short_term_memory_summary: state.short_term_memory_summary.clone(),
     }
 }
 
@@ -790,8 +808,21 @@ async fn handle_chat_request(
         let text = match result {
             Ok(plan) => {
                 state.last_action_plan = Some(plan.clone());
+
+                state.push_memory(crate::memory::MemoryEntry {
+                    category: crate::memory::MemoryCategory::Goal,
+                    summary: format!(
+                        "User requested action: {} | Proposed: {:?} {}",
+                        plan.user_request, plan.proposed_action.kind, plan.proposed_action.target
+                    ),
+                    importance: 0.75,
+                    timestamp_ms: current_timestamp_ms(),
+                });
+
                 state.pending_action =
                     crate::actions::proposed_action_to_executable(&plan.proposed_action);
+
+                maybe_refresh_memory_summary(state, llm).await;
 
                 let steps = plan
                     .steps
@@ -840,6 +871,8 @@ async fn handle_chat_request(
         mood: &state.mood,
 
         short_term_memory: &state.short_term_memory,
+
+        short_term_memory_summary: state.short_term_memory_summary.as_ref(),
     };
 
     let result = llm.generate_chat_reply(&user_message, &chat_context).await;
@@ -933,4 +966,27 @@ fn current_timestamp_ms() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
+}
+
+async fn maybe_refresh_memory_summary(state: &mut AppState, llm: &LlmClient) {
+    if state.short_term_memory.len() < 4 {
+        return;
+    }
+
+    if !state.short_term_memory.len().is_multiple_of(4) {
+        return;
+    }
+
+    match llm
+        .summarize_short_term_memory(&state.short_term_memory)
+        .await
+    {
+        Ok(summary) => {
+            info!(summary = %summary, "short-term memory summarized");
+            state.short_term_memory_summary = Some(summary);
+        }
+        Err(err) => {
+            warn!(error = %err, "failed to summarize short-term memory");
+        }
+    }
 }

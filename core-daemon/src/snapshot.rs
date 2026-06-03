@@ -1,5 +1,6 @@
 use crate::action_plan::ActionPlan;
 use crate::assessment::ContextAssessment;
+use crate::memory::MemoryEntry;
 use crate::visible_text::VisibleTextContext;
 
 use serde::Serialize;
@@ -43,6 +44,8 @@ pub struct AppSnapshot {
     pub last_action_plan: Option<ActionPlan>,
     pub pending_action: Option<crate::actions::ExecutableAction>,
     pub last_assessment: Option<ContextAssessment>,
+    pub short_term_memory: Vec<MemoryEntry>,
+    pub short_term_memory_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
