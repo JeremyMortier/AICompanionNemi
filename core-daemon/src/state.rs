@@ -3,6 +3,7 @@ use std::time::Instant;
 use crate::action_plan::ActionPlan;
 use crate::activity::UserActivity;
 use crate::assessment::ContextAssessment;
+use crate::attention::AttentionState;
 use crate::chat::ChatMessage;
 use crate::context::ContextInterpretation;
 use crate::context_fusion::FusedContext;
@@ -49,6 +50,7 @@ pub struct AppState {
     pub last_assessment: Option<ContextAssessment>,
     pub short_term_memory: Vec<MemoryEntry>,
     pub short_term_memory_summary: Option<String>,
+    pub attention: AttentionState,
 }
 
 impl AppState {
@@ -73,6 +75,7 @@ impl AppState {
             last_assessment: None,
             short_term_memory: Vec::new(),
             short_term_memory_summary: None,
+            attention: AttentionState::default(),
         }
     }
 

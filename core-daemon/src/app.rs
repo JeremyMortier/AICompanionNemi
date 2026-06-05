@@ -419,16 +419,27 @@ async fn process_events(
 
                 state.push_memory(crate::memory::MemoryEntry {
                     category: crate::memory::MemoryCategory::Assessment,
-
                     summary: format!(
                         "Situation: {} | Goal: {}",
                         assessment.situation, assessment.likely_user_goal
                     ),
-
                     importance: assessment.confidence,
-
                     timestamp_ms: current_timestamp_ms(),
                 });
+
+                let now_ms = current_timestamp_ms();
+
+                state
+                    .attention
+                    .observe_subject(&assessment.situation, now_ms);
+
+                state
+                    .attention
+                    .observe_subject(&assessment.likely_user_goal, now_ms);
+
+                for clue in &assessment.visible_clues {
+                    state.attention.observe_subject(clue, now_ms);
+                }
 
                 state.last_assessment = Some(assessment);
                 maybe_refresh_memory_summary(state, llm).await;
@@ -617,6 +628,7 @@ fn build_snapshot(state: &AppState, config: &AppConfig) -> AppSnapshot {
         last_assessment: state.last_assessment.clone(),
         short_term_memory: state.short_term_memory.clone(),
         short_term_memory_summary: state.short_term_memory_summary.clone(),
+        attention: state.attention.clone(),
     }
 }
 
@@ -859,20 +871,14 @@ async fn handle_chat_request(
 
     let chat_context = crate::chat_context::ChatGenerationContext {
         user_intent: &user_intent,
-
         fused_context: state.last_fused_context.as_ref(),
-
         visible_text: state.visible_text_context.as_ref(),
-
         assessment: state.last_assessment.as_ref(),
-
         persona: &config.persona,
-
         mood: &state.mood,
-
         short_term_memory: &state.short_term_memory,
-
         short_term_memory_summary: state.short_term_memory_summary.as_ref(),
+        attention: &state.attention,
     };
 
     let result = llm.generate_chat_reply(&user_message, &chat_context).await;

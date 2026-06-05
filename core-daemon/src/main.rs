@@ -3,6 +3,7 @@ mod actions;
 mod activity;
 mod app;
 mod assessment;
+mod attention;
 mod chat;
 mod chat_context;
 mod config;

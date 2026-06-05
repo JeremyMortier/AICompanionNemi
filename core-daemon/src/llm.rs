@@ -317,6 +317,27 @@ impl LlmClient {
             .map(|summary| format!("Short-term memory summary:\n{summary}"))
             .unwrap_or_else(|| "Short-term memory summary: unavailable.".to_string());
 
+        let attention_block = {
+            let targets = context
+                .attention
+                .top_targets(6)
+                .iter()
+                .map(|target| {
+                    format!(
+                        "- {} (interest={}, seen={})",
+                        target.subject, target.interest_score, target.seen_count
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            if targets.is_empty() {
+                "Attention memory: empty.".to_string()
+            } else {
+                format!("Attention memory:\n{targets}")
+            }
+        };
+
         let prompt = format!(
             r#"You are {name}, a lively anime-style personal AI companion for a private desktop setup.
 
@@ -340,6 +361,7 @@ impl LlmClient {
             {assessment_block}
             {memory_block}
             {memory_summary_block}
+            {attention_block}
 
             User message:
             "{user_message}"
@@ -375,6 +397,8 @@ impl LlmClient {
             mood_intensity = context.mood.intensity,
             intent_block = intent_block,
             memory_block = memory_block,
+            memory_summary_block = memory_summary_block,
+            attention_block = attention_block,
         );
 
         let request = OllamaGenerateRequest {
