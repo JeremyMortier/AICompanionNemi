@@ -17,6 +17,7 @@ use crate::decision::{ReactionDecision, decide_reaction};
 use crate::events::{AppEvent, EventBus};
 use crate::intent::classify_user_intent;
 use crate::llm::LlmClient;
+use crate::long_term_memory::LongTermMemoryStore;
 use crate::mood::MoodState;
 use crate::ocr::extract_text_from_image;
 use crate::reaction::GeneratedReaction;
@@ -33,7 +34,9 @@ pub async fn run() -> Result<()> {
     init_tracing();
 
     let config = AppConfig::default();
-    let mut state = AppState::new();
+    let long_term_memory =
+        LongTermMemoryStore::load("data/long_term_memory.json").unwrap_or_default();
+    let mut state = AppState::new(long_term_memory);
     let mut event_bus = EventBus::new();
     let llm = LlmClient::new(
         "http://127.0.0.1:11434".to_string(),
@@ -429,6 +432,30 @@ async fn process_events(
 
                 let now_ms = current_timestamp_ms();
 
+                if let Some(window) = state.active_window.as_ref() {
+                    state
+                        .attention
+                        .observe_subject(&format!("app: {}", window.process_name), now_ms);
+
+                    state
+                        .attention
+                        .observe_subject(&format!("activity: {:?}", window.activity), now_ms);
+                }
+
+                if let Some(visible) = state.visible_text_context.as_ref() {
+                    for keyword in &visible.detected_keywords {
+                        state
+                            .attention
+                            .observe_subject(&format!("keyword: {}", keyword), now_ms);
+                    }
+
+                    for file in &visible.detected_files {
+                        state
+                            .attention
+                            .observe_subject(&format!("file: {}", file), now_ms);
+                    }
+                }
+
                 state
                     .attention
                     .observe_subject(&assessment.situation, now_ms);
@@ -440,6 +467,9 @@ async fn process_events(
                 for clue in &assessment.visible_clues {
                     state.attention.observe_subject(clue, now_ms);
                 }
+
+                maybe_learn_from_attention(state);
+                maybe_generate_curiosity(state, config, llm).await;
 
                 state.last_assessment = Some(assessment);
                 maybe_refresh_memory_summary(state, llm).await;
@@ -629,6 +659,8 @@ fn build_snapshot(state: &AppState, config: &AppConfig) -> AppSnapshot {
         short_term_memory: state.short_term_memory.clone(),
         short_term_memory_summary: state.short_term_memory_summary.clone(),
         attention: state.attention.clone(),
+        long_term_memory: state.long_term_memory.top_entries(12),
+        last_curiosity_question: state.last_curiosity_question.clone(),
     }
 }
 
@@ -879,6 +911,7 @@ async fn handle_chat_request(
         short_term_memory: &state.short_term_memory,
         short_term_memory_summary: state.short_term_memory_summary.as_ref(),
         attention: &state.attention,
+        long_term_memory: &state.long_term_memory,
     };
 
     let result = llm.generate_chat_reply(&user_message, &chat_context).await;
@@ -993,6 +1026,65 @@ async fn maybe_refresh_memory_summary(state: &mut AppState, llm: &LlmClient) {
         }
         Err(err) => {
             warn!(error = %err, "failed to summarize short-term memory");
+        }
+    }
+}
+
+fn maybe_learn_from_attention(state: &mut AppState) {
+    let now = current_timestamp_ms();
+
+    for target in state.attention.strong_targets() {
+        let content = format!("The user repeatedly focuses on: {}", target.subject);
+
+        state
+            .long_term_memory
+            .add_or_update(crate::long_term_memory::LongTermMemoryEntry {
+                id: format!("attention-{now}-{}", target.subject.len()),
+                category: crate::long_term_memory::LongTermMemoryCategory::Habit,
+                content,
+                confidence: target.interest_score,
+                importance: target.interest_score,
+                created_at_ms: now,
+                updated_at_ms: now,
+            });
+    }
+
+    if let Err(err) = state.long_term_memory.save("data/long_term_memory.json") {
+        warn!(error = %err, "failed to save long-term memory");
+    }
+}
+
+async fn maybe_generate_curiosity(state: &mut AppState, config: &AppConfig, llm: &LlmClient) {
+    if state.last_curiosity_question.is_some() {
+        return;
+    }
+
+    let Some(target) = state.attention.most_interesting_subject().cloned() else {
+        return;
+    };
+
+    match llm
+        .generate_curiosity_question(&target.subject, &config.persona, &state.mood)
+        .await
+    {
+        Ok(question) => {
+            info!(
+                subject = %target.subject,
+                question = %question,
+                "curiosity question generated"
+            );
+
+            state.last_curiosity_question = Some(question.clone());
+
+            state.push_memory(crate::memory::MemoryEntry {
+                category: crate::memory::MemoryCategory::Goal,
+                summary: format!("Nemi became curious about: {}", target.subject),
+                importance: target.interest_score,
+                timestamp_ms: current_timestamp_ms(),
+            });
+        }
+        Err(err) => {
+            warn!(error = %err, "failed to generate curiosity question");
         }
     }
 }

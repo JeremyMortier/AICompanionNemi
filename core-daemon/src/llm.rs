@@ -338,6 +338,27 @@ impl LlmClient {
             }
         };
 
+        let long_term_memory_block = {
+            let entries = context
+                .long_term_memory
+                .top_entries(8)
+                .iter()
+                .map(|m| {
+                    format!(
+                        "- {:?}: {} (importance={}, confidence={})",
+                        m.category, m.content, m.importance, m.confidence
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            if entries.is_empty() {
+                "Long-term memory: empty.".to_string()
+            } else {
+                format!("Long-term memory:\n{entries}")
+            }
+        };
+
         let prompt = format!(
             r#"You are {name}, a lively anime-style personal AI companion for a private desktop setup.
 
@@ -362,6 +383,7 @@ impl LlmClient {
             {memory_block}
             {memory_summary_block}
             {attention_block}
+            {long_term_memory_block}
 
             User message:
             "{user_message}"
@@ -399,6 +421,7 @@ impl LlmClient {
             memory_block = memory_block,
             memory_summary_block = memory_summary_block,
             attention_block = attention_block,
+            long_term_memory_block = long_term_memory_block,
         );
 
         let request = OllamaGenerateRequest {
@@ -696,6 +719,83 @@ impl LlmClient {
             .context("failed to parse short-term memory summary")?;
 
         Ok(parsed.summary)
+    }
+
+    pub async fn generate_curiosity_question(
+        &self,
+        subject: &str,
+        persona: &crate::persona::PersonaProfile,
+        mood: &crate::mood::MoodState,
+    ) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct CuriosityResponse {
+            question: String,
+        }
+
+        let prompt = format!(
+            r#"You are {name}, a lively anime-style personal AI companion.
+
+            The user repeatedly interacts with this subject:
+            "{subject}"
+
+            Persona:
+            - energy: {energy}/100
+            - playfulness: {playfulness}/100
+            - curiosity: {curiosity}/100
+            - affection: {affection}/100
+            - discretion: {discretion}/100
+
+            Current mood:
+            - mood: {mood:?}
+            - intensity: {mood_intensity}/100
+
+            Task:
+            Generate one short natural curiosity question about this subject.
+
+            Rules:
+            - answer in French if possible
+            - be curious, friendly, and conversational
+            - sound like a companion, not an assistant
+            - do not be too formal
+            - do not mention internal systems, attention, memory, or scores
+            - less than 20 words
+            - return only valid JSON
+
+            Return JSON:
+            {{
+                "question": "..."
+            }}"#,
+            name = persona.name,
+            subject = subject,
+            energy = persona.energy,
+            playfulness = persona.playfulness,
+            curiosity = persona.curiosity,
+            affection = persona.affection,
+            discretion = persona.discretion,
+            mood = mood.current,
+            mood_intensity = mood.intensity,
+        );
+
+        let request = OllamaGenerateRequest {
+            model: self.model.clone(),
+            prompt,
+            stream: false,
+            images: None,
+            format: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "question": { "type": "string" }
+                },
+                "required": ["question"]
+            }),
+        };
+
+        let response = self.send_generate_request(request).await?;
+
+        let parsed = serde_json::from_str::<CuriosityResponse>(&response.response)
+            .context("failed to parse structured JSON returned by model for curiosity question")?;
+
+        Ok(parsed.question)
     }
 }
 

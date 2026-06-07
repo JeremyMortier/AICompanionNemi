@@ -58,6 +58,13 @@ impl AttentionState {
 
         targets.into_iter().take(limit).collect()
     }
+
+    pub fn most_interesting_subject(&self) -> Option<&AttentionTarget> {
+        self.targets
+            .iter()
+            .filter(|target| target.interest_score >= 0.55 && target.seen_count >= 2)
+            .max_by(|a, b| a.interest_score.total_cmp(&b.interest_score))
+    }
 }
 
 fn normalize_subject(subject: &str) -> String {
@@ -67,4 +74,14 @@ fn normalize_subject(subject: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+impl AttentionState {
+    pub fn strong_targets(&self) -> Vec<AttentionTarget> {
+        self.targets
+            .iter()
+            .filter(|target| target.seen_count >= 5 && target.interest_score >= 0.65)
+            .cloned()
+            .collect()
+    }
 }

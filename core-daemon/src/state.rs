@@ -8,6 +8,7 @@ use crate::chat::ChatMessage;
 use crate::context::ContextInterpretation;
 use crate::context_fusion::FusedContext;
 use crate::decision::ReactionDecision;
+use crate::long_term_memory::LongTermMemoryStore;
 use crate::memory::MemoryEntry;
 use crate::memory::RecentReactionMemory;
 use crate::mood::MoodState;
@@ -51,10 +52,12 @@ pub struct AppState {
     pub short_term_memory: Vec<MemoryEntry>,
     pub short_term_memory_summary: Option<String>,
     pub attention: AttentionState,
+    pub long_term_memory: LongTermMemoryStore,
+    pub last_curiosity_question: Option<String>,
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(long_term_memory: LongTermMemoryStore) -> Self {
         Self {
             tick_count: 0,
             active_window: None,
@@ -76,6 +79,8 @@ impl AppState {
             short_term_memory: Vec::new(),
             short_term_memory_summary: None,
             attention: AttentionState::default(),
+            long_term_memory,
+            last_curiosity_question: None,
         }
     }
 

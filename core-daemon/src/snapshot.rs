@@ -1,6 +1,7 @@
 use crate::action_plan::ActionPlan;
 use crate::assessment::ContextAssessment;
 use crate::attention::AttentionState;
+use crate::long_term_memory::LongTermMemoryEntry;
 use crate::memory::MemoryEntry;
 use crate::visible_text::VisibleTextContext;
 
@@ -48,6 +49,8 @@ pub struct AppSnapshot {
     pub short_term_memory: Vec<MemoryEntry>,
     pub short_term_memory_summary: Option<String>,
     pub attention: AttentionState,
+    pub long_term_memory: Vec<LongTermMemoryEntry>,
+    pub last_curiosity_question: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
