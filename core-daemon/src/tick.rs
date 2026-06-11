@@ -6,7 +6,7 @@ use crate::screen::capture_all_screens;
 use crate::state::AppState;
 use tracing::warn;
 
-pub fn run_tick(state: &mut AppState, _config: &AppConfig, event_bus: &mut EventBus) {
+pub fn run_tick(state: &mut AppState, config: &AppConfig, event_bus: &mut EventBus) {
     state.increment_tick();
 
     match get_active_window_info() {
@@ -27,7 +27,11 @@ pub fn run_tick(state: &mut AppState, _config: &AppConfig, event_bus: &mut Event
         }
     }
 
-    if state.tick_count.is_multiple_of(5) {
+    if config.auto_screen_capture_enabled
+        && state
+            .tick_count
+            .is_multiple_of(config.screen_capture_every_ticks)
+    {
         capture_screens_now(event_bus);
     }
 }

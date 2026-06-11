@@ -57,7 +57,10 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(long_term_memory: LongTermMemoryStore) -> Self {
+    pub fn new(
+        long_term_memory: LongTermMemoryStore,
+        attention: crate::attention::AttentionState,
+    ) -> Self {
         Self {
             tick_count: 0,
             active_window: None,
@@ -78,7 +81,7 @@ impl AppState {
             last_assessment: None,
             short_term_memory: Vec::new(),
             short_term_memory_summary: None,
-            attention: AttentionState::default(),
+            attention,
             long_term_memory,
             last_curiosity_question: None,
         }

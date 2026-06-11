@@ -9,6 +9,7 @@ use tracing::{Level, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::activity::{UserActivity, classify_activity};
+use crate::attention::AttentionState;
 use crate::chat::{ChatMessage, ChatRole};
 use crate::config::AppConfig;
 use crate::context::ContextInterpretation;
@@ -36,11 +37,31 @@ pub async fn run() -> Result<()> {
     let config = AppConfig::default();
     let long_term_memory =
         LongTermMemoryStore::load("data/long_term_memory.json").unwrap_or_default();
-    let mut state = AppState::new(long_term_memory);
+    let attention = AttentionState::load("data/attention.json").unwrap_or_default();
+    let mut state = AppState::new(long_term_memory, attention);
     let mut event_bus = EventBus::new();
     let llm = LlmClient::new(
         "http://127.0.0.1:11434".to_string(),
-        "gemma3:4b".to_string(),
+        config.chat_model.clone(),
+        config.vision_model.clone(),
+        config.reasoning_model.clone(),
+        config.fast_model.clone(),
+    );
+
+    info!("Runtime profile: {:?}", config.runtime_profile);
+    info!("Chat model: {}", config.chat_model);
+    info!("Vision model: {}", config.vision_model);
+    info!("Reasoning model: {}", config.reasoning_model);
+    info!("Fast model: {}", config.fast_model);
+    info!(
+        auto_screen_capture = config.auto_screen_capture_enabled,
+        auto_vision = config.auto_vision_enabled,
+        auto_ocr = config.auto_ocr_enabled,
+        auto_assessment = config.auto_assessment_enabled,
+        auto_memory_learning = config.auto_memory_learning_enabled,
+        auto_memory_summary = config.auto_memory_summary_enabled,
+        auto_curiosity = config.auto_curiosity_enabled,
+        "runtime feature flags"
     );
 
     let shared_snapshot: SharedSnapshot = Arc::new(RwLock::new(build_snapshot(&state, &config)));
@@ -290,7 +311,7 @@ async fn process_events(
                 }
             }
             AppEvent::ReactionGenerated(generated) => {
-                handle_generated_reaction(state, llm, generated).await;
+                handle_generated_reaction(state, config, llm, generated).await;
             }
             AppEvent::ScreensCaptured { captures } => {
                 info!(count = captures.len(), "screens captured");
@@ -312,7 +333,7 @@ async fn process_events(
                 state.last_screen_captures = captures;
 
                 if let Some(capture) = focused_capture {
-                    if config.ocr_enabled {
+                    if config.ocr_enabled && config.auto_ocr_enabled {
                         match extract_text_from_image(&config.tesseract_path, &capture.path) {
                             Ok(text) => {
                                 if !text.trim().is_empty() {
@@ -327,18 +348,20 @@ async fn process_events(
 
                     let active_window = state.active_window.as_ref();
 
-                    event_bus.push(AppEvent::VisionInterpretationRequested {
-                        image_path: capture.path,
-                        process_name: active_window
-                            .map(|w| w.process_name.clone())
-                            .unwrap_or_else(|| "unknown".to_string()),
-                        window_title: active_window
-                            .map(|w| w.title.clone())
-                            .unwrap_or_else(|| "unknown".to_string()),
-                        heuristic_activity: active_window
-                            .map(|w| w.activity.clone())
-                            .unwrap_or(UserActivity::Unknown),
-                    });
+                    if config.auto_vision_enabled {
+                        event_bus.push(AppEvent::VisionInterpretationRequested {
+                            image_path: capture.path,
+                            process_name: active_window
+                                .map(|w| w.process_name.clone())
+                                .unwrap_or_else(|| "unknown".to_string()),
+                            window_title: active_window
+                                .map(|w| w.title.clone())
+                                .unwrap_or_else(|| "unknown".to_string()),
+                            heuristic_activity: active_window
+                                .map(|w| w.activity.clone())
+                                .unwrap_or(UserActivity::Unknown),
+                        });
+                    }
                 }
             }
             AppEvent::VisionInterpretationRequested {
@@ -398,6 +421,10 @@ async fn process_events(
                 capture_screens_now(event_bus);
             }
             AppEvent::ContextAssessmentRequested => {
+                if !config.auto_assessment_enabled {
+                    continue;
+                }
+
                 if let Some(fused_context) = state.last_fused_context.as_ref() {
                     match llm
                         .assess_context(fused_context, state.visible_text_context.as_ref())
@@ -468,11 +495,23 @@ async fn process_events(
                     state.attention.observe_subject(clue, now_ms);
                 }
 
-                maybe_learn_from_attention(state);
-                maybe_generate_curiosity(state, config, llm).await;
+                if config.auto_memory_learning_enabled {
+                    maybe_learn_from_attention(state, llm).await;
+                }
+
+                if config.auto_curiosity_enabled {
+                    maybe_generate_curiosity(state, config, llm).await;
+                }
+
+                if let Err(err) = state.attention.save("data/attention.json") {
+                    warn!(error = %err, "failed to save attention state");
+                }
 
                 state.last_assessment = Some(assessment);
-                maybe_refresh_memory_summary(state, llm).await;
+
+                if config.auto_memory_summary_enabled {
+                    maybe_refresh_memory_summary(state, llm).await;
+                }
             }
         }
 
@@ -556,6 +595,7 @@ fn handle_reaction_decision(
 
 async fn handle_generated_reaction(
     state: &mut AppState,
+    config: &AppConfig,
     llm: &LlmClient,
     generated: GeneratedReaction,
 ) {
@@ -581,7 +621,9 @@ async fn handle_generated_reaction(
         timestamp_ms: current_timestamp_ms(),
     });
 
-    maybe_refresh_memory_summary(state, llm).await;
+    if config.auto_memory_summary_enabled {
+        maybe_refresh_memory_summary(state, llm).await;
+    }
 }
 
 fn should_request_interpretation(
@@ -799,7 +841,10 @@ fn handle_fused_context(
     );
 
     state.last_fused_context = Some(fused_context.clone());
-    event_bus.push(AppEvent::ContextAssessmentRequested);
+
+    if config.auto_assessment_enabled {
+        event_bus.push(AppEvent::ContextAssessmentRequested);
+    }
 
     let interpretation = ContextInterpretation {
         activity: fused_context.activity,
@@ -866,7 +911,9 @@ async fn handle_chat_request(
                 state.pending_action =
                     crate::actions::proposed_action_to_executable(&plan.proposed_action);
 
-                maybe_refresh_memory_summary(state, llm).await;
+                if config.auto_memory_summary_enabled {
+                    maybe_refresh_memory_summary(state, llm).await;
+                }
 
                 let steps = plan
                     .steps
@@ -1030,23 +1077,39 @@ async fn maybe_refresh_memory_summary(state: &mut AppState, llm: &LlmClient) {
     }
 }
 
-fn maybe_learn_from_attention(state: &mut AppState) {
+async fn maybe_learn_from_attention(state: &mut AppState, llm: &LlmClient) {
     let now = current_timestamp_ms();
 
     for target in state.attention.strong_targets() {
-        let content = format!("The user repeatedly focuses on: {}", target.subject);
+        match llm
+            .extract_memory_candidate(&target.subject, target.seen_count, target.interest_score)
+            .await
+        {
+            Ok(candidate) => {
+                if !candidate.should_store {
+                    continue;
+                }
 
-        state
-            .long_term_memory
-            .add_or_update(crate::long_term_memory::LongTermMemoryEntry {
-                id: format!("attention-{now}-{}", target.subject.len()),
-                category: crate::long_term_memory::LongTermMemoryCategory::Habit,
-                content,
-                confidence: target.interest_score,
-                importance: target.interest_score,
-                created_at_ms: now,
-                updated_at_ms: now,
-            });
+                state.long_term_memory.add_or_update(
+                    crate::long_term_memory::LongTermMemoryEntry {
+                        id: format!("memory-{now}-{}", candidate.content.len()),
+                        category: candidate.category,
+                        content: candidate.content,
+                        confidence: candidate.confidence,
+                        importance: candidate.importance,
+                        created_at_ms: now,
+                        updated_at_ms: now,
+                    },
+                );
+            }
+            Err(err) => {
+                warn!(
+                    subject = %target.subject,
+                    error = %err,
+                    "failed to extract memory candidate"
+                );
+            }
+        }
     }
 
     if let Err(err) = state.long_term_memory.save("data/long_term_memory.json") {

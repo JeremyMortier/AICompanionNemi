@@ -16,6 +16,7 @@ mod intent;
 mod llm;
 mod long_term_memory;
 mod memory;
+mod memory_candidate;
 mod mood;
 mod observation;
 mod ocr;

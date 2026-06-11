@@ -1,4 +1,6 @@
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::{fs, path::Path};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttentionTarget {
@@ -83,5 +85,34 @@ impl AttentionState {
             .filter(|target| target.seen_count >= 5 && target.interest_score >= 0.65)
             .cloned()
             .collect()
+    }
+
+    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("failed to read attention state: {}", path.display()))?;
+
+        let state = serde_json::from_str(&content)
+            .with_context(|| format!("failed to parse attention state: {}", path.display()))?;
+
+        Ok(state)
+    }
+
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let content = serde_json::to_string_pretty(self)?;
+        fs::write(path, content)?;
+
+        Ok(())
     }
 }

@@ -74,8 +74,8 @@
                 <textarea id="message" rows="4" placeholder="Parle à Nemi..."></textarea>
                 <button onclick="sendChat()">Envoyer</button>
                 <button onclick="commentNow()">Commenter maintenant</button>
-                <button onclick="refreshAnalysis()">Rafraîchir l’analyse</button>
-                <div class="reaction" id="reply">Aucune réponse pour l’instant.</div>
+                <button onclick="refreshAnalysis()">Rafraîchir l'analyse</button>
+                <div class="reaction" id="reply">Aucune réponse pour l'instant.</div>
             </div>
 
             <div class="card">
@@ -118,12 +118,16 @@
             </div>
 
             <div class="card">
-                <h2>Curiosity</h2>
+                <h2>Curiosité</h2>
                 <pre id="curiosity"></pre>
             </div>
         </div>
 
         <script>
+            function setLoading(label) {
+                document.getElementById('reply').textContent = label;
+            }
+
             async function refreshState() {
                 const res = await fetch('/state');
                 const state = await res.json();
@@ -143,37 +147,48 @@
 
             async function sendChat() {
                 const message = document.getElementById('message').value;
+                setLoading('Nemi réfléchit...');
 
-                const res = await fetch('/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message })
-                });
+                try {
+                    const res = await fetch('/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message })
+                    });
 
-                const data = await res.json();
-
-                document.getElementById('reply').textContent = data.reply;
+                    const data = await res.json();
+                    document.getElementById('reply').textContent = data.reply;
+                } catch (err) {
+                    document.getElementById('reply').textContent = `Erreur UI: ${err}`;
+                }
 
                 await refreshState();
             }
 
             async function commentNow() {
-                const res = await fetch('/comment-now', {
-                    method: 'POST'
-                });
+                setLoading('Nemi prépare un commentaire...');
 
-                const data = await res.json();
-                document.getElementById('reply').textContent = data.reply;
+                try {
+                    const res = await fetch('/comment-now', { method: 'POST' });
+                    const data = await res.json();
+                    document.getElementById('reply').textContent = data.reply;
+                } catch (err) {
+                    document.getElementById('reply').textContent = `Erreur UI: ${err}`;
+                }
+
                 await refreshState();
             }
 
             async function refreshAnalysis() {
-                const res = await fetch('/refresh-analysis', {
-                    method: 'POST'
-                });
+                setLoading('Analyse en cours...');
 
-                const data = await res.json();
-                document.getElementById('reply').textContent = data.reply;
+                try {
+                    const res = await fetch('/refresh-analysis', { method: 'POST' });
+                    const data = await res.json();
+                    document.getElementById('reply').textContent = data.reply;
+                } catch (err) {
+                    document.getElementById('reply').textContent = `Erreur UI: ${err}`;
+                }
 
                 setTimeout(refreshState, 1500);
             }

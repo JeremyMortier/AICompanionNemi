@@ -26,15 +26,27 @@ struct OllamaGenerateResponse {
 pub struct LlmClient {
     http: Client,
     base_url: String,
-    model: String,
+    chat_model: String,
+    vision_model: String,
+    reasoning_model: String,
+    fast_model: String,
 }
 
 impl LlmClient {
-    pub fn new(base_url: String, model: String) -> Self {
+    pub fn new(
+        base_url: String,
+        chat_model: String,
+        vision_model: String,
+        reasoning_model: String,
+        fast_model: String,
+    ) -> Self {
         Self {
             http: Client::new(),
             base_url,
-            model,
+            chat_model,
+            vision_model,
+            reasoning_model,
+            fast_model,
         }
     }
 
@@ -49,7 +61,7 @@ impl LlmClient {
             build_interpretation_prompt(process_name, title, heuristic_activity, stable_for_ms);
 
         let request = OllamaGenerateRequest {
-            model: self.model.clone(),
+            model: self.reasoning_model.clone(),
             prompt,
             stream: false,
             format: serde_json::json!({
@@ -96,7 +108,7 @@ impl LlmClient {
             build_reaction_prompt(interpretation, decision, recent_reactions, persona, mood);
 
         let request = OllamaGenerateRequest {
-            model: self.model.clone(),
+            model: self.chat_model.clone(),
             prompt,
             stream: false,
             format: serde_json::json!({
@@ -131,14 +143,22 @@ impl LlmClient {
             .json(&request)
             .send()
             .await
-            .context("failed to call Ollama")?
-            .error_for_status()
-            .context("Ollama returned an HTTP error")?
+            .context("failed to call Ollama")?;
+
+        let status = response.status();
+
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_else(|_| "".to_string());
+
+            anyhow::bail!("Ollama HTTP {}: {}", status, body);
+        }
+
+        let envelope = response
             .json::<OllamaGenerateResponse>()
             .await
             .context("failed to deserialize Ollama response envelope")?;
 
-        Ok(response)
+        Ok(envelope)
     }
 
     pub async fn interpret_vision(
@@ -425,7 +445,7 @@ impl LlmClient {
         );
 
         let request = OllamaGenerateRequest {
-            model: self.model.clone(),
+            model: self.chat_model.clone(),
             prompt,
             stream: false,
             images: None,
@@ -512,7 +532,7 @@ impl LlmClient {
         );
 
         let request = OllamaGenerateRequest {
-            model: self.model.clone(),
+            model: self.reasoning_model.clone(),
             prompt,
             stream: false,
             images: None,
@@ -614,7 +634,7 @@ impl LlmClient {
         );
 
         let request = OllamaGenerateRequest {
-            model: self.model.clone(),
+            model: self.reasoning_model.clone(),
             prompt,
             stream: false,
             images: None,
@@ -700,7 +720,7 @@ impl LlmClient {
         }
 
         let request = OllamaGenerateRequest {
-            model: self.model.clone(),
+            model: self.fast_model.clone(),
             prompt,
             stream: false,
             images: None,
@@ -777,7 +797,7 @@ impl LlmClient {
         );
 
         let request = OllamaGenerateRequest {
-            model: self.model.clone(),
+            model: self.chat_model.clone(),
             prompt,
             stream: false,
             images: None,
@@ -796,6 +816,102 @@ impl LlmClient {
             .context("failed to parse structured JSON returned by model for curiosity question")?;
 
         Ok(parsed.question)
+    }
+
+    pub async fn extract_memory_candidate(
+        &self,
+        subject: &str,
+        seen_count: u32,
+        interest_score: f32,
+    ) -> Result<crate::memory_candidate::MemoryCandidate> {
+        let prompt = format!(
+            r#"You are a long-term memory extraction module for a personal AI companion.
+
+            Observed recurring subject:
+            "{subject}"
+
+            seen_count: {seen_count}
+            interest_score: {interest_score}
+
+            Your job:
+            Decide whether this should become a useful long-term memory about the user.
+
+            Store only meaningful, reusable facts.
+            Do NOT store temporary UI noise, random OCR fragments, generic app names, or vague screen descriptions.
+
+            Good examples:
+            - "The user often plays League of Legends."
+            - "The user often browses Pokémon-related content."
+            - "The user is building a personal AI companion named Nemi."
+            - "The user prefers anime-style companion personalities."
+
+            Bad examples:
+            - "The user focused on app: opera.exe."
+            - "The user saw activity: Browsing."
+            - "The user saw a screen."
+            - "The user repeatedly focuses on: keyword: json."
+
+            Rules:
+            - If the subject is too generic, set should_store to false.
+            - If it is useful for future personalization, set should_store to true.
+            - Write content in English for now.
+            - confidence and importance must be between 0 and 1.
+
+            Return only valid JSON:
+            {{
+            "should_store": true,
+            "category": "Habit",
+            "content": "...",
+            "confidence": 0.0,
+            "importance": 0.0
+            }}"#
+        );
+
+        let request = OllamaGenerateRequest {
+            model: self.reasoning_model.clone(),
+            prompt,
+            stream: false,
+            images: None,
+            format: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "should_store": { "type": "boolean" },
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "UserPreference",
+                            "ProjectFact",
+                            "Habit",
+                            "PersonalContext",
+                            "CompanionBehavior"
+                        ]
+                    },
+                    "content": { "type": "string" },
+                    "confidence": { "type": "number" },
+                    "importance": { "type": "number" }
+                },
+                "required": [
+                    "should_store",
+                    "category",
+                    "content",
+                    "confidence",
+                    "importance"
+                ]
+            }),
+        };
+
+        let response = self.send_generate_request(request).await?;
+
+        let mut parsed =
+            serde_json::from_str::<crate::memory_candidate::MemoryCandidate>(&response.response)
+                .context(
+                    "failed to parse structured JSON returned by model for memory candidate",
+                )?;
+
+        parsed.confidence = parsed.confidence.clamp(0.0, 1.0);
+        parsed.importance = parsed.importance.clamp(0.0, 1.0);
+
+        Ok(parsed)
     }
 }
 
