@@ -5,6 +5,7 @@ use crate::activity::UserActivity;
 use crate::assessment::ContextAssessment;
 use crate::attention::AttentionState;
 use crate::chat::ChatMessage;
+use crate::companion_state::CompanionState;
 use crate::context::ContextInterpretation;
 use crate::context_fusion::FusedContext;
 use crate::decision::ReactionDecision;
@@ -54,6 +55,7 @@ pub struct AppState {
     pub attention: AttentionState,
     pub long_term_memory: LongTermMemoryStore,
     pub last_curiosity_question: Option<String>,
+    pub companion_state: CompanionState,
 }
 
 impl AppState {
@@ -84,6 +86,7 @@ impl AppState {
             attention,
             long_term_memory,
             last_curiosity_question: None,
+            companion_state: CompanionState::default(),
         }
     }
 

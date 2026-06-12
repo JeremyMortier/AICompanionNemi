@@ -82,7 +82,7 @@ impl AttentionState {
     pub fn strong_targets(&self) -> Vec<AttentionTarget> {
         self.targets
             .iter()
-            .filter(|target| target.seen_count >= 5 && target.interest_score >= 0.65)
+            .filter(|target| target.seen_count >= 3 && target.interest_score >= 0.55)
             .cloned()
             .collect()
     }

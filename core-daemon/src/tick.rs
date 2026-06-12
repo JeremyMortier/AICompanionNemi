@@ -28,9 +28,7 @@ pub fn run_tick(state: &mut AppState, config: &AppConfig, event_bus: &mut EventB
     }
 
     if config.auto_screen_capture_enabled
-        && state
-            .tick_count
-            .is_multiple_of(config.screen_capture_every_ticks)
+        && state.tick_count.is_multiple_of(config.screen_capture_every_ticks)
     {
         capture_screens_now(event_bus);
     }

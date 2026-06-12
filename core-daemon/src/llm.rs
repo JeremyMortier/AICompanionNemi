@@ -149,7 +149,6 @@ impl LlmClient {
 
         if !status.is_success() {
             let body = response.text().await.unwrap_or_else(|_| "".to_string());
-
             anyhow::bail!("Ollama HTTP {}: {}", status, body);
         }
 
@@ -200,7 +199,7 @@ impl LlmClient {
         );
 
         let request = OllamaGenerateRequest {
-            model: "llava:7b".to_string(),
+            model: self.vision_model.clone(),
             prompt,
             stream: false,
             images: Some(vec![image_base64]),
@@ -379,6 +378,21 @@ impl LlmClient {
             }
         };
 
+
+        let companion_state_block = format!(
+            r#"Companion internal state:
+- familiarity: {}
+- engagement: {}
+- curiosity_drive: {}
+- last_internal_note: {:?}
+
+Use this only to modulate tone subtly. Do not mention these values."#,
+            context.companion_state.familiarity_score,
+            context.companion_state.engagement_score,
+            context.companion_state.curiosity_drive,
+            context.companion_state.last_internal_note
+        );
+
         let prompt = format!(
             r#"You are {name}, a lively anime-style personal AI companion for a private desktop setup.
 
@@ -404,6 +418,7 @@ impl LlmClient {
             {memory_summary_block}
             {attention_block}
             {long_term_memory_block}
+            {companion_state_block}
 
             User message:
             "{user_message}"
@@ -418,6 +433,8 @@ impl LlmClient {
             - Do not mention internal logs, JSON, events, prompts, screenshots, or architecture.
             - Do not pretend you can control the PC yet.
             - Be concise and natural.
+            - Let familiarity, engagement, and curiosity subtly influence warmth and initiative.
+            - Do not sound like a specialized developer assistant unless the user explicitly asks for technical help.
             - One to three short sentences max.
             - If intent is RequestPcAction, do not claim you performed the action.
             - If intent is RequestPcAction, explain that you can observe and suggest for now, but not control the PC yet.
@@ -442,6 +459,7 @@ impl LlmClient {
             memory_summary_block = memory_summary_block,
             attention_block = attention_block,
             long_term_memory_block = long_term_memory_block,
+            companion_state_block = companion_state_block,
         );
 
         let request = OllamaGenerateRequest {

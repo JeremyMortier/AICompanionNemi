@@ -7,6 +7,7 @@ mod attention;
 mod chat;
 mod chat_context;
 mod config;
+mod companion_state;
 mod context;
 mod context_fusion;
 mod curiosity;

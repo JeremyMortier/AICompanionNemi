@@ -1,5 +1,6 @@
 use crate::action_plan::ActionPlan;
 use crate::assessment::ContextAssessment;
+use crate::companion_state::CompanionState;
 use crate::attention::AttentionState;
 use crate::long_term_memory::LongTermMemoryEntry;
 use crate::memory::MemoryEntry;
@@ -51,6 +52,7 @@ pub struct AppSnapshot {
     pub attention: AttentionState,
     pub long_term_memory: Vec<LongTermMemoryEntry>,
     pub last_curiosity_question: Option<String>,
+    pub companion_state: CompanionState,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]

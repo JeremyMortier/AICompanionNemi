@@ -121,6 +121,16 @@
                 <h2>Curiosité</h2>
                 <pre id="curiosity"></pre>
             </div>
+
+            <div class="card">
+                <h2>Companion State</h2>
+                <pre id="companionState">-</pre>
+            </div>
+
+            <div class="card">
+                <h2>Attention</h2>
+                <pre id="attentionState">-</pre>
+            </div>
         </div>
 
         <script>
@@ -143,6 +153,8 @@
                 document.getElementById('shortTermMemory').textContent = state.short_term_memory ? JSON.stringify(state.short_term_memory.slice(-8), null, 2) : '-';
                 document.getElementById('longTermMemory').textContent = state.long_term_memory ? JSON.stringify(state.long_term_memory, null, 2) : '-';
                 document.getElementById("curiosity").textContent = state.last_curiosity_question ?? "-";
+                document.getElementById('companionState').textContent = state.companion_state ? JSON.stringify(state.companion_state, null, 2) : '-';
+                document.getElementById('attentionState').textContent = state.attention ? JSON.stringify(state.attention.targets?.slice(0, 10) ?? [], null, 2) : '-';
             }
 
             async function sendChat() {

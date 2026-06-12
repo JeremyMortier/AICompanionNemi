@@ -447,6 +447,10 @@ async fn process_events(
                     "context assessed"
                 );
 
+                state
+                    .companion_state
+                    .observe_assessment(&assessment.situation, assessment.confidence);
+
                 state.push_memory(crate::memory::MemoryEntry {
                     category: crate::memory::MemoryCategory::Assessment,
                     summary: format!(
@@ -613,6 +617,7 @@ async fn handle_generated_reaction(
 
     state.last_generated_reaction = Some(generated.clone());
     state.recent_reaction_memory.push(generated);
+    state.companion_state.observe_reaction();
 
     state.push_memory(crate::memory::MemoryEntry {
         category: crate::memory::MemoryCategory::Reaction,
@@ -703,6 +708,7 @@ fn build_snapshot(state: &AppState, config: &AppConfig) -> AppSnapshot {
         attention: state.attention.clone(),
         long_term_memory: state.long_term_memory.top_entries(12),
         last_curiosity_question: state.last_curiosity_question.clone(),
+        companion_state: state.companion_state.clone(),
     }
 }
 
@@ -880,6 +886,8 @@ async fn handle_chat_request(
         content: user_message.clone(),
     });
 
+    state.companion_state.observe_user_message(&user_message);
+
     let user_intent = classify_user_intent(&user_message);
 
     info!(intent = ?user_intent, message = %user_message, "chat intent classified");
@@ -959,6 +967,7 @@ async fn handle_chat_request(
         short_term_memory_summary: state.short_term_memory_summary.as_ref(),
         attention: &state.attention,
         long_term_memory: &state.long_term_memory,
+        companion_state: &state.companion_state,
     };
 
     let result = llm.generate_chat_reply(&user_message, &chat_context).await;
@@ -1138,6 +1147,7 @@ async fn maybe_generate_curiosity(state: &mut AppState, config: &AppConfig, llm:
             );
 
             state.last_curiosity_question = Some(question.clone());
+            state.companion_state.observe_curiosity_question(&target.subject);
 
             state.push_memory(crate::memory::MemoryEntry {
                 category: crate::memory::MemoryCategory::Goal,

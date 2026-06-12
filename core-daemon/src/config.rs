@@ -52,7 +52,7 @@ pub struct AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        Self::dev_light()
+        Self::heavy()
     }
 }
 
@@ -84,9 +84,9 @@ impl AppConfig {
             ocr_enabled: true,
 
             chat_model: "gemma3:4b".to_string(),
+            vision_model: "qwen2.5vl:7b".to_string(),
             reasoning_model: "gemma3:4b".to_string(),
             fast_model: "gemma3:4b".to_string(),
-            vision_model: "qwen2.5vl:7b".to_string(),
 
             auto_screen_capture_enabled: false,
             screen_capture_every_ticks: 10,
