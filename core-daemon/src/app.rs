@@ -23,7 +23,8 @@ use crate::mood::MoodState;
 use crate::ocr::extract_text_from_image;
 use crate::reaction::GeneratedReaction;
 use crate::server::{
-    ChatRequest, CommentNowRequest, RefreshAnalysisRequest, SharedSnapshot, run_server,
+    ChatRequest, ClearCuriosityRequest, CommentNowRequest, CuriosityNowRequest,
+    RefreshAnalysisRequest, SharedSnapshot, run_server,
 };
 use crate::snapshot::{ActiveWindowSnapshot, AppSnapshot, InterpretationSnapshot, MoodSnapshot};
 use crate::state::{ActiveWindowState, AppState};
@@ -69,6 +70,8 @@ pub async fn run() -> Result<()> {
     let (comment_now_tx, mut comment_now_rx) = mpsc::channel::<CommentNowRequest>(16);
     let (refresh_analysis_tx, mut refresh_analysis_rx) =
         mpsc::channel::<RefreshAnalysisRequest>(16);
+    let (curiosity_now_tx, mut curiosity_now_rx) = mpsc::channel::<CuriosityNowRequest>(16);
+    let (clear_curiosity_tx, mut clear_curiosity_rx) = mpsc::channel::<ClearCuriosityRequest>(16);
 
     {
         let server_snapshot = Arc::clone(&shared_snapshot);
@@ -78,6 +81,8 @@ pub async fn run() -> Result<()> {
                 chat_tx,
                 comment_now_tx,
                 refresh_analysis_tx,
+                curiosity_now_tx,
+                clear_curiosity_tx,
             )
             .await
             {
@@ -113,6 +118,22 @@ pub async fn run() -> Result<()> {
 
         while let Ok(refresh_request) = refresh_analysis_rx.try_recv() {
             handle_refresh_analysis_request(refresh_request, &mut event_bus).await;
+        }
+
+        while let Ok(curiosity_request) = curiosity_now_rx.try_recv() {
+            handle_curiosity_now_request(
+                curiosity_request,
+                &mut state,
+                &config,
+                &llm,
+                &shared_snapshot,
+            )
+            .await;
+        }
+
+        while let Ok(clear_request) = clear_curiosity_rx.try_recv() {
+            handle_clear_curiosity_request(clear_request, &mut state, &shared_snapshot, &config)
+                .await;
         }
 
         event_bus.push(AppEvent::Tick);
@@ -968,6 +989,7 @@ async fn handle_chat_request(
         attention: &state.attention,
         long_term_memory: &state.long_term_memory,
         companion_state: &state.companion_state,
+        recent_chat_history: &state.chat_history,
     };
 
     let result = llm.generate_chat_reply(&user_message, &chat_context).await;
@@ -1131,33 +1153,85 @@ async fn maybe_generate_curiosity(state: &mut AppState, config: &AppConfig, llm:
         return;
     }
 
-    let Some(target) = state.attention.most_interesting_subject().cloned() else {
-        return;
-    };
+    if let Err(err) = generate_curiosity_question_now(state, config, llm).await {
+        warn!(error = %err, "failed to generate curiosity question");
+    }
+}
 
-    match llm
-        .generate_curiosity_question(&target.subject, &config.persona, &state.mood)
-        .await
-    {
+async fn generate_curiosity_question_now(
+    state: &mut AppState,
+    config: &AppConfig,
+    llm: &LlmClient,
+) -> anyhow::Result<String> {
+    let subject = state
+        .attention
+        .most_interesting_subject()
+        .map(|target| (target.subject.clone(), target.interest_score))
+        .or_else(|| {
+            state
+                .last_assessment
+                .as_ref()
+                .map(|assessment| (assessment.likely_user_goal.clone(), assessment.confidence))
+        })
+        .or_else(|| {
+            state
+                .active_window
+                .as_ref()
+                .map(|window| (format!("{} / {}", window.process_name, window.title), 0.45))
+        })
+        .unwrap_or_else(|| ("the current computer activity".to_string(), 0.35));
+
+    let question = llm
+        .generate_curiosity_question(&subject.0, &config.persona, &state.mood)
+        .await?;
+
+    info!(
+        subject = %subject.0,
+        question = %question,
+        "curiosity question generated"
+    );
+
+    state.last_curiosity_question = Some(question.clone());
+    state.companion_state.observe_curiosity_question(&subject.0);
+
+    state.push_memory(crate::memory::MemoryEntry {
+        category: crate::memory::MemoryCategory::Goal,
+        summary: format!("Nemi became curious about: {}", subject.0),
+        importance: subject.1,
+        timestamp_ms: current_timestamp_ms(),
+    });
+
+    Ok(question)
+}
+
+async fn handle_curiosity_now_request(
+    request: CuriosityNowRequest,
+    state: &mut AppState,
+    config: &AppConfig,
+    llm: &LlmClient,
+    shared_snapshot: &SharedSnapshot,
+) {
+    match generate_curiosity_question_now(state, config, llm).await {
         Ok(question) => {
-            info!(
-                subject = %target.subject,
-                question = %question,
-                "curiosity question generated"
-            );
-
-            state.last_curiosity_question = Some(question.clone());
-            state.companion_state.observe_curiosity_question(&target.subject);
-
-            state.push_memory(crate::memory::MemoryEntry {
-                category: crate::memory::MemoryCategory::Goal,
-                summary: format!("Nemi became curious about: {}", target.subject),
-                importance: target.interest_score,
-                timestamp_ms: current_timestamp_ms(),
-            });
+            let _ = request.reply_tx.send(Ok(question));
         }
         Err(err) => {
-            warn!(error = %err, "failed to generate curiosity question");
+            let _ = request.reply_tx.send(Err(err));
         }
     }
+
+    sync_snapshot(shared_snapshot, state, config).await;
+}
+
+async fn handle_clear_curiosity_request(
+    request: ClearCuriosityRequest,
+    state: &mut AppState,
+    shared_snapshot: &SharedSnapshot,
+    config: &AppConfig,
+) {
+    state.last_curiosity_question = None;
+
+    let _ = request.reply_tx.send(Ok("Curiosité effacée.".to_string()));
+
+    sync_snapshot(shared_snapshot, state, config).await;
 }

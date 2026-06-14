@@ -18,6 +18,8 @@ pub struct ServerState {
     pub chat_tx: mpsc::Sender<ChatRequest>,
     pub comment_now_tx: mpsc::Sender<CommentNowRequest>,
     pub refresh_analysis_tx: mpsc::Sender<RefreshAnalysisRequest>,
+    pub curiosity_now_tx: mpsc::Sender<CuriosityNowRequest>,
+    pub clear_curiosity_tx: mpsc::Sender<ClearCuriosityRequest>,
 }
 
 #[derive(Debug)]
@@ -46,17 +48,31 @@ pub struct RefreshAnalysisRequest {
     pub reply_tx: tokio::sync::oneshot::Sender<anyhow::Result<String>>,
 }
 
+#[derive(Debug)]
+pub struct CuriosityNowRequest {
+    pub reply_tx: tokio::sync::oneshot::Sender<anyhow::Result<String>>,
+}
+
+#[derive(Debug)]
+pub struct ClearCuriosityRequest {
+    pub reply_tx: tokio::sync::oneshot::Sender<anyhow::Result<String>>,
+}
+
 pub async fn run_server(
     shared_snapshot: SharedSnapshot,
     chat_tx: mpsc::Sender<ChatRequest>,
     comment_now_tx: mpsc::Sender<CommentNowRequest>,
     refresh_analysis_tx: mpsc::Sender<RefreshAnalysisRequest>,
+    curiosity_now_tx: mpsc::Sender<CuriosityNowRequest>,
+    clear_curiosity_tx: mpsc::Sender<ClearCuriosityRequest>,
 ) -> anyhow::Result<()> {
     let state = ServerState {
         snapshot: shared_snapshot,
         chat_tx,
         comment_now_tx,
         refresh_analysis_tx,
+        curiosity_now_tx,
+        clear_curiosity_tx,
     };
 
     let app = Router::new()
@@ -66,6 +82,8 @@ pub async fn run_server(
         .route("/chat", post(chat))
         .route("/comment-now", post(comment_now))
         .route("/refresh-analysis", post(refresh_analysis))
+        .route("/curiosity-now", post(curiosity_now))
+        .route("/clear-curiosity", post(clear_curiosity))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 7878));
@@ -151,6 +169,50 @@ async fn refresh_analysis(State(state): State<ServerState>) -> Json<ChatResponse
         Ok(Ok(reply)) => Json(ChatResponseBody { reply }),
         _ => Json(ChatResponseBody {
             reply: "L'analyse forcée a échoué.".to_string(),
+        }),
+    }
+}
+
+async fn curiosity_now(State(state): State<ServerState>) -> Json<ChatResponseBody> {
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+    if state
+        .curiosity_now_tx
+        .send(CuriosityNowRequest { reply_tx })
+        .await
+        .is_err()
+    {
+        return Json(ChatResponseBody {
+            reply: "Impossible de déclencher la curiosité pour l'instant.".to_string(),
+        });
+    }
+
+    match reply_rx.await {
+        Ok(Ok(reply)) => Json(ChatResponseBody { reply }),
+        _ => Json(ChatResponseBody {
+            reply: "La génération de curiosité a échoué.".to_string(),
+        }),
+    }
+}
+
+async fn clear_curiosity(State(state): State<ServerState>) -> Json<ChatResponseBody> {
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+    if state
+        .clear_curiosity_tx
+        .send(ClearCuriosityRequest { reply_tx })
+        .await
+        .is_err()
+    {
+        return Json(ChatResponseBody {
+            reply: "Impossible d'effacer la curiosité pour l'instant.".to_string(),
+        });
+    }
+
+    match reply_rx.await {
+        Ok(Ok(reply)) => Json(ChatResponseBody { reply }),
+        _ => Json(ChatResponseBody {
+            reply: "L'effacement de la curiosité a échoué.".to_string(),
         }),
     }
 }

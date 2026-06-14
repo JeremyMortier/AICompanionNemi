@@ -75,6 +75,8 @@
                 <button onclick="sendChat()">Envoyer</button>
                 <button onclick="commentNow()">Commenter maintenant</button>
                 <button onclick="refreshAnalysis()">Rafraîchir l'analyse</button>
+                <button onclick="curiosityNow()">Forcer une curiosité</button>
+                <button onclick="clearCuriosity()">Effacer la curiosité</button>
                 <div class="reaction" id="reply">Aucune réponse pour l'instant.</div>
             </div>
 
@@ -203,6 +205,34 @@
                 }
 
                 setTimeout(refreshState, 1500);
+            }
+
+            async function curiosityNow() {
+                setLoading('Nemi cherche une question...');
+
+                try {
+                    const res = await fetch('/curiosity-now', { method: 'POST' });
+                    const data = await res.json();
+                    document.getElementById('reply').textContent = data.reply;
+                } catch (err) {
+                    document.getElementById('reply').textContent = `Erreur UI: ${err}`;
+                }
+
+                await refreshState();
+            }
+
+            async function clearCuriosity() {
+                setLoading('Curiosité effacée...');
+
+                try {
+                    const res = await fetch('/clear-curiosity', { method: 'POST' });
+                    const data = await res.json();
+                    document.getElementById('reply').textContent = data.reply;
+                } catch (err) {
+                    document.getElementById('reply').textContent = `Erreur UI: ${err}`;
+                }
+
+                await refreshState();
             }
 
             refreshState();

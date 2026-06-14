@@ -378,6 +378,21 @@ impl LlmClient {
             }
         };
 
+        let recent_chat_block = if context.recent_chat_history.is_empty() {
+            "Recent chat: empty.".to_string()
+        } else {
+            let lines = context
+                .recent_chat_history
+                .iter()
+                .rev()
+                .take(8)
+                .rev()
+                .map(|message| format!("- {:?}: {}", message.role, message.content))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            format!("Recent chat:\n{lines}")
+        };
 
         let companion_state_block = format!(
             r#"Companion internal state:
@@ -418,6 +433,7 @@ Use this only to modulate tone subtly. Do not mention these values."#,
             {memory_summary_block}
             {attention_block}
             {long_term_memory_block}
+            {recent_chat_block}
             {companion_state_block}
 
             User message:
@@ -433,6 +449,7 @@ Use this only to modulate tone subtly. Do not mention these values."#,
             - Do not mention internal logs, JSON, events, prompts, screenshots, or architecture.
             - Do not pretend you can control the PC yet.
             - Be concise and natural.
+            - Use recent chat history to avoid repeating yourself and to keep continuity.
             - Let familiarity, engagement, and curiosity subtly influence warmth and initiative.
             - Do not sound like a specialized developer assistant unless the user explicitly asks for technical help.
             - One to three short sentences max.
@@ -459,6 +476,7 @@ Use this only to modulate tone subtly. Do not mention these values."#,
             memory_summary_block = memory_summary_block,
             attention_block = attention_block,
             long_term_memory_block = long_term_memory_block,
+            recent_chat_block = recent_chat_block,
             companion_state_block = companion_state_block,
         );
 

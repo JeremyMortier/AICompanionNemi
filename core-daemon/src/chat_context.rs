@@ -1,7 +1,8 @@
 use crate::{
-    assessment::ContextAssessment, attention::AttentionState, companion_state::CompanionState, context_fusion::FusedContext,
-    intent::UserIntent, long_term_memory::LongTermMemoryStore, memory::MemoryEntry,
-    mood::MoodState, persona::PersonaProfile, visible_text::VisibleTextContext,
+    assessment::ContextAssessment, attention::AttentionState, chat::ChatMessage,
+    companion_state::CompanionState, context_fusion::FusedContext, intent::UserIntent,
+    long_term_memory::LongTermMemoryStore, memory::MemoryEntry, mood::MoodState,
+    persona::PersonaProfile, visible_text::VisibleTextContext,
 };
 
 pub struct ChatGenerationContext<'a> {
@@ -16,4 +17,5 @@ pub struct ChatGenerationContext<'a> {
     pub attention: &'a AttentionState,
     pub long_term_memory: &'a LongTermMemoryStore,
     pub companion_state: &'a CompanionState,
+    pub recent_chat_history: &'a [ChatMessage],
 }
