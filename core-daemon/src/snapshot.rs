@@ -1,7 +1,7 @@
 use crate::action_plan::ActionPlan;
 use crate::assessment::ContextAssessment;
-use crate::attention::AttentionState;
 use crate::companion_state::CompanionState;
+use crate::attention::AttentionState;
 use crate::long_term_memory::LongTermMemoryEntry;
 use crate::memory::MemoryEntry;
 use crate::visible_text::VisibleTextContext;

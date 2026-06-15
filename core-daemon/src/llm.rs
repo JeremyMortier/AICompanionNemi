@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -41,7 +43,10 @@ impl LlmClient {
         fast_model: String,
     ) -> Self {
         Self {
-            http: Client::new(),
+            http: Client::builder()
+                .timeout(Duration::from_secs(120))
+                .build()
+                .expect("failed to build HTTP client"),
             base_url,
             chat_model,
             vision_model,
@@ -248,7 +253,7 @@ impl LlmClient {
                     Do not explicitly mention it unless it helps answer the user.
                     If the context is weak or ambiguous, do not invent details.
                     "#,
-                    ctx.activity, ctx.confidence, ctx.summary
+                    ctx.activity, ctx.confidence, truncate_chars(&ctx.summary, 1_200)
                 )
             })
             .unwrap_or_else(|| {
@@ -264,7 +269,7 @@ impl LlmClient {
                     - confidence: {}
                     - summary: {}
                     "#,
-                    ctx.activity, ctx.confidence, ctx.summary
+                    ctx.activity, ctx.confidence, truncate_chars(&ctx.summary, 1_200)
                 )
             })
             .unwrap_or_else(|| "Observed screen context: unavailable.\n".to_string());
@@ -283,7 +288,7 @@ impl LlmClient {
                     visible.detected_files,
                     visible.detected_errors,
                     visible.detected_keywords,
-                    visible.raw_preview
+                    truncate_chars(&visible.raw_preview, 1_000)
                 )
             })
             .unwrap_or_else(|| "Visible text analysis: unavailable.\n".to_string());
@@ -301,11 +306,11 @@ impl LlmClient {
                     - uncertainties: {:?}
                     - recommended next step: {:?}
                     - confidence: {}"#,
-                    a.situation,
-                    a.likely_user_goal,
-                    a.visible_clues,
-                    a.uncertainties,
-                    a.recommended_next_step,
+                    truncate_chars(&a.situation, 500),
+                    truncate_chars(&a.likely_user_goal, 300),
+                    a.visible_clues.iter().take(8).cloned().collect::<Vec<_>>(),
+                    a.uncertainties.iter().take(5).cloned().collect::<Vec<_>>(),
+                    a.recommended_next_step.as_ref().map(|s| truncate_chars(s, 300)),
                     a.confidence
                 )
             })
@@ -318,11 +323,11 @@ impl LlmClient {
                 .short_term_memory
                 .iter()
                 .rev()
-                .take(8)
+                .take(3)
                 .map(|m| {
                     format!(
                         "- {:?}: {} (importance={})",
-                        m.category, m.summary, m.importance
+                        m.category, truncate_chars(&m.summary, 300), m.importance
                     )
                 })
                 .collect::<Vec<_>>()
@@ -333,18 +338,18 @@ impl LlmClient {
 
         let memory_summary_block = context
             .short_term_memory_summary
-            .map(|summary| format!("Short-term memory summary:\n{summary}"))
+            .map(|summary| format!("Short-term memory summary:\n{}", truncate_chars(summary, 600)))
             .unwrap_or_else(|| "Short-term memory summary: unavailable.".to_string());
 
         let attention_block = {
             let targets = context
                 .attention
-                .top_targets(6)
+                .top_targets(5)
                 .iter()
                 .map(|target| {
                     format!(
                         "- {} (interest={}, seen={})",
-                        target.subject, target.interest_score, target.seen_count
+                        truncate_chars(&target.subject, 120), target.interest_score, target.seen_count
                     )
                 })
                 .collect::<Vec<_>>()
@@ -360,12 +365,12 @@ impl LlmClient {
         let long_term_memory_block = {
             let entries = context
                 .long_term_memory
-                .top_entries(8)
+                .top_entries(5)
                 .iter()
                 .map(|m| {
                     format!(
                         "- {:?}: {} (importance={}, confidence={})",
-                        m.category, m.content, m.importance, m.confidence
+                        m.category, truncate_chars(&m.content, 220), m.importance, m.confidence
                     )
                 })
                 .collect::<Vec<_>>()
@@ -378,6 +383,7 @@ impl LlmClient {
             }
         };
 
+
         let recent_chat_block = if context.recent_chat_history.is_empty() {
             "Recent chat: empty.".to_string()
         } else {
@@ -385,9 +391,11 @@ impl LlmClient {
                 .recent_chat_history
                 .iter()
                 .rev()
-                .take(8)
+                .take(4)
                 .rev()
-                .map(|message| format!("- {:?}: {}", message.role, message.content))
+                .map(|message| {
+                    format!("- {:?}: {}", message.role, truncate_chars(&message.content, 220))
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
 
@@ -968,6 +976,17 @@ impl ContextInterpretationWire {
             should_comment: self.should_comment,
         }
     }
+}
+
+
+fn truncate_chars(input: &str, max_chars: usize) -> String {
+    let mut result = input.chars().take(max_chars).collect::<String>();
+
+    if input.chars().count() > max_chars {
+        result.push_str("...");
+    }
+
+    result
 }
 
 fn parse_activity(value: &str) -> UserActivity {

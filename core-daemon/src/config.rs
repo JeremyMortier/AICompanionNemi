@@ -52,7 +52,7 @@ pub struct AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        Self::heavy()
+        Self::balanced()
     }
 }
 
@@ -113,7 +113,7 @@ impl AppConfig {
             cooldown_unknown_secs: 20,
             debug_force_reaction_in_gaming: false,
             auto_screen_capture_enabled: true,
-            screen_capture_every_ticks: 10,
+            screen_capture_every_ticks: 15,
             auto_vision_enabled: true,
             auto_ocr_enabled: true,
             auto_assessment_enabled: true,
@@ -137,7 +137,7 @@ impl AppConfig {
             cooldown_gaming_secs: 10,
             cooldown_unknown_secs: 10,
             auto_screen_capture_enabled: true,
-            screen_capture_every_ticks: 6,
+            screen_capture_every_ticks: 10,
             auto_vision_enabled: true,
             auto_ocr_enabled: true,
             auto_assessment_enabled: true,

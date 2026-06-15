@@ -173,6 +173,7 @@ async fn refresh_analysis(State(state): State<ServerState>) -> Json<ChatResponse
     }
 }
 
+
 async fn curiosity_now(State(state): State<ServerState>) -> Json<ChatResponseBody> {
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
 

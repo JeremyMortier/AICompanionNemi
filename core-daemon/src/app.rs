@@ -23,8 +23,7 @@ use crate::mood::MoodState;
 use crate::ocr::extract_text_from_image;
 use crate::reaction::GeneratedReaction;
 use crate::server::{
-    ChatRequest, ClearCuriosityRequest, CommentNowRequest, CuriosityNowRequest,
-    RefreshAnalysisRequest, SharedSnapshot, run_server,
+    ChatRequest, ClearCuriosityRequest, CommentNowRequest, CuriosityNowRequest, RefreshAnalysisRequest, SharedSnapshot, run_server,
 };
 use crate::snapshot::{ActiveWindowSnapshot, AppSnapshot, InterpretationSnapshot, MoodSnapshot};
 use crate::state::{ActiveWindowState, AppState};
@@ -1231,7 +1230,9 @@ async fn handle_clear_curiosity_request(
 ) {
     state.last_curiosity_question = None;
 
-    let _ = request.reply_tx.send(Ok("Curiosité effacée.".to_string()));
+    let _ = request
+        .reply_tx
+        .send(Ok("Curiosité effacée.".to_string()));
 
     sync_snapshot(shared_snapshot, state, config).await;
 }
